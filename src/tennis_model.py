@@ -258,7 +258,7 @@ def _play_tiebreak_win_prob_a(
     p_serve: float,
     p_return: float,
 ) -> float:
-    dist, _ = _tiebreak_solve(target, 6 if target == 7 else 10, first_point_server_is_a, p_serve, p_return)
+    dist, _ = _tiebreak_solve(target, target - 1, first_point_server_is_a, p_serve, p_return)
     return float(sum(dist[i] for i in (4, 5, 6, 7)))
 
 
@@ -303,7 +303,7 @@ def game_primitives_table(p_serve: float, p_return: float) -> pd.DataFrame:
         )
     )
     for target, label in ((7, "Tiebreak to 7"), (10, "Tiebreak to 10")):
-        tie_level = 6 if target == 7 else 10
+        tie_level = target - 1
         dist, dt = _tiebreak_solve(target, tie_level, True, p_serve, p_return)
         rows.append((label, _row_from_margin_dist(dist, dt)))
 
@@ -343,9 +343,17 @@ def set_score_distribution(
     first_game_server_is_a: bool,
     p_serve: float,
     p_return: float,
-) -> Dict[Tuple[int, int], float]:
+) -> Dict[Tuple[int, int, bool], float]:
+    """
+    Returns {(games_a, games_b, next_set_opener_is_a): probability}.
+
+    next_set_opener_is_a follows the ATP/WTA continuation rule: whoever would have
+    served the next game (had the set continued) serves game 1 of the next set.
+    Equivalently, the opener flips iff the set contained an odd number of games.
+    A tiebreak counts as one game, so a 7-6 set (13 games, odd) flips the opener.
+    """
     states: Dict[Tuple[int, int, bool], float] = {(0, 0, first_game_server_is_a): 1.0}
-    out: Dict[Tuple[int, int], float] = defaultdict(float)
+    out: Dict[Tuple[int, int, bool], float] = defaultdict(float)
 
     while states:
         nxt: Dict[Tuple[int, int, bool], float] = defaultdict(float)
@@ -353,12 +361,15 @@ def set_score_distribution(
             if mass == 0.0:
                 continue
             if ga == spec.tb_at and gb == spec.tb_at:
+                # Tiebreak is one game; srv_a serves it, so not srv_a opens next set.
                 pw = _play_tiebreak_win_prob_a(spec.tb_target, srv_a, p_serve, p_return)
-                out[(ga + 1, gb)] += mass * pw
-                out[(ga, gb + 1)] += mass * (1.0 - pw)
+                next_opener = not srv_a
+                out[(ga + 1, gb, next_opener)] += mass * pw
+                out[(ga, gb + 1, next_opener)] += mass * (1.0 - pw)
                 continue
             if _set_terminal(ga, gb, spec):
-                out[(ga, gb)] += mass
+                # srv_a would serve the next game → srv_a opens the next set.
+                out[(ga, gb, srv_a)] += mass
                 continue
             pa = _game_win_prob_ad(spec.no_ad, srv_a, p_serve, p_return)
             pb = 1.0 - pa
@@ -366,15 +377,6 @@ def set_score_distribution(
             nxt[(ga, gb + 1, not srv_a)] += mass * pb
         states = nxt
     return dict(out)
-
-
-def _next_set_opener_a(first_game_server_was_a: bool) -> bool:
-    return not first_game_server_was_a
-
-
-def _set_opener_is_a(set_index: int, match_first_server_is_a: bool) -> bool:
-    """Who serves game 1 of set (0-based index); openers alternate each set."""
-    return match_first_server_is_a if set_index % 2 == 0 else (not match_first_server_is_a)
 
 
 def _match_bo3_three_sets(
@@ -385,20 +387,18 @@ def _match_bo3_three_sets(
 ) -> Dict[Tuple[int, int], float]:
     d_total: Dict[Tuple[int, int], float] = defaultdict(float)
     s1 = set_score_distribution(set_spec, first_set_server_a, p_serve, p_return)
-    for (g1a, g1b), p1 in s1.items():
+    for (g1a, g1b, s2_opener), p1 in s1.items():
         a_won_s1 = g1a > g1b
-        s2_first = _next_set_opener_a(first_set_server_a)
-        s2 = set_score_distribution(set_spec, s2_first, p_serve, p_return)
-        for (g2a, g2b), p2 in s2.items():
+        s2 = set_score_distribution(set_spec, s2_opener, p_serve, p_return)
+        for (g2a, g2b, s3_opener), p2 in s2.items():
             p12 = p1 * p2
             sa = int(a_won_s1) + int(g2a > g2b)
             sb = int(not a_won_s1) + int(g2b > g2a)
             if sa == 2 or sb == 2:
                 d_total[(sa, sb)] += p12
                 continue
-            s3_first = _next_set_opener_a(s2_first)
-            s3 = set_score_distribution(set_spec, s3_first, p_serve, p_return)
-            for (g3a, g3b), p3 in s3.items():
+            s3 = set_score_distribution(set_spec, s3_opener, p_serve, p_return)
+            for (g3a, g3b, _), p3 in s3.items():
                 sa3 = sa + int(g3a > g3b)
                 sb3 = sb + int(g3b > g3a)
                 d_total[(sa3, sb3)] += p12 * p3
@@ -413,11 +413,10 @@ def _match_bo3_mtb10(
 ) -> Dict[Tuple[int, int], float]:
     d_total: Dict[Tuple[int, int], float] = defaultdict(float)
     s1 = set_score_distribution(set_spec, first_set_server_a, p_serve, p_return)
-    for (g1a, g1b), p1 in s1.items():
+    for (g1a, g1b, s2_opener), p1 in s1.items():
         a_won_s1 = g1a > g1b
-        s2_first = _next_set_opener_a(first_set_server_a)
-        s2 = set_score_distribution(set_spec, s2_first, p_serve, p_return)
-        for (g2a, g2b), p2 in s2.items():
+        s2 = set_score_distribution(set_spec, s2_opener, p_serve, p_return)
+        for (g2a, g2b, mtb_opener), p2 in s2.items():
             p12 = p1 * p2
             sa = int(a_won_s1) + int(g2a > g2b)
             sb = int(not a_won_s1) + int(g2b > g2a)
@@ -427,8 +426,7 @@ def _match_bo3_mtb10(
             if sb == 2:
                 d_total[(0, 2)] += p12
                 continue
-            mtb_first = _next_set_opener_a(s2_first)
-            pw = _play_tiebreak_win_prob_a(10, mtb_first, p_serve, p_return)
+            pw = _play_tiebreak_win_prob_a(10, mtb_opener, p_serve, p_return)
             d_total[(2, 1)] += p12 * pw
             d_total[(1, 2)] += p12 * (1.0 - pw)
     return dict(d_total)
@@ -442,20 +440,18 @@ def _slam_bo3_variable_tb(
 ) -> Dict[Tuple[int, int], float]:
     d_total: Dict[Tuple[int, int], float] = defaultdict(float)
     s1 = set_score_distribution(set_specs[0], first_set_server_a, p_serve, p_return)
-    for (g1a, g1b), p1 in s1.items():
+    for (g1a, g1b, s2_opener), p1 in s1.items():
         a_won_s1 = g1a > g1b
-        s2_first = _next_set_opener_a(first_set_server_a)
-        s2 = set_score_distribution(set_specs[1], s2_first, p_serve, p_return)
-        for (g2a, g2b), p2 in s2.items():
+        s2 = set_score_distribution(set_specs[1], s2_opener, p_serve, p_return)
+        for (g2a, g2b, s3_opener), p2 in s2.items():
             p12 = p1 * p2
             sa = int(a_won_s1) + int(g2a > g2b)
             sb = int(not a_won_s1) + int(g2b > g2a)
             if sa == 2 or sb == 2:
                 d_total[(sa, sb)] += p12
                 continue
-            s3_first = _next_set_opener_a(s2_first)
-            s3 = set_score_distribution(set_specs[2], s3_first, p_serve, p_return)
-            for (g3a, g3b), p3 in s3.items():
+            s3 = set_score_distribution(set_specs[2], s3_opener, p_serve, p_return)
+            for (g3a, g3b, _), p3 in s3.items():
                 sa3 = sa + int(g3a > g3b)
                 sb3 = sb + int(g3b > g3a)
                 d_total[(sa3, sb3)] += p12 * p3
@@ -469,28 +465,27 @@ def _match_bo5_variable_last(
     p_serve: float,
     p_return: float,
 ) -> Dict[Tuple[int, int], float]:
-    memo: Dict[Tuple[int, int, int], Dict[Tuple[int, int], float]] = {}
+    memo: Dict[Tuple[int, int, bool], Dict[Tuple[int, int], float]] = {}
 
-    def rec(sa: int, sb: int, set_idx: int) -> Dict[Tuple[int, int], float]:
+    def rec(sa: int, sb: int, opener_is_a: bool) -> Dict[Tuple[int, int], float]:
         if sa >= 3 or sb >= 3:
             return {(sa, sb): 1.0}
-        key = (sa, sb, set_idx)
+        key = (sa, sb, opener_is_a)
         if key in memo:
             return memo[key]
-        spec = last if set_idx == 4 else early
-        srv = _set_opener_is_a(set_idx, first_set_server_a)
+        spec = last if sa + sb == 4 else early
         agg: Dict[Tuple[int, int], float] = defaultdict(float)
-        for (ga, gb), p in set_score_distribution(spec, srv, p_serve, p_return).items():
+        for (ga, gb, next_opener), p in set_score_distribution(spec, opener_is_a, p_serve, p_return).items():
             na = sa + int(ga > gb)
             nb = sb + int(gb > ga)
-            sub = rec(na, nb, set_idx + 1)
+            sub = rec(na, nb, next_opener)
             for k, v in sub.items():
                 agg[k] += p * v
         out = dict(agg)
         memo[key] = out
         return out
 
-    return rec(0, 0, 0)
+    return rec(0, 0, first_set_server_a)
 
 
 def _match_bo5_uniform(
@@ -499,27 +494,26 @@ def _match_bo5_uniform(
     p_serve: float,
     p_return: float,
 ) -> Dict[Tuple[int, int], float]:
-    memo: Dict[Tuple[int, int, int], Dict[Tuple[int, int], float]] = {}
+    memo: Dict[Tuple[int, int, bool], Dict[Tuple[int, int], float]] = {}
 
-    def rec(sa: int, sb: int, set_idx: int) -> Dict[Tuple[int, int], float]:
+    def rec(sa: int, sb: int, opener_is_a: bool) -> Dict[Tuple[int, int], float]:
         if sa >= 3 or sb >= 3:
             return {(sa, sb): 1.0}
-        key = (sa, sb, set_idx)
+        key = (sa, sb, opener_is_a)
         if key in memo:
             return memo[key]
-        srv = _set_opener_is_a(set_idx, first_set_server_a)
         agg: Dict[Tuple[int, int], float] = defaultdict(float)
-        for (ga, gb), p in set_score_distribution(spec, srv, p_serve, p_return).items():
+        for (ga, gb, next_opener), p in set_score_distribution(spec, opener_is_a, p_serve, p_return).items():
             na = sa + int(ga > gb)
             nb = sb + int(gb > ga)
-            sub = rec(na, nb, set_idx + 1)
+            sub = rec(na, nb, next_opener)
             for k, v in sub.items():
                 agg[k] += p * v
         out = dict(agg)
         memo[key] = out
         return out
 
-    return rec(0, 0, 0)
+    return rec(0, 0, first_set_server_a)
 
 
 def _dist_to_match_row(dist: Dict[Tuple[int, int], float], bo5: bool) -> Dict[str, float]:

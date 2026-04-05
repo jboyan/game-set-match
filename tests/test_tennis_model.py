@@ -99,8 +99,32 @@ def test_match_distributions_sum_to_one() -> None:
     assert math.isclose(sum(d5.values()), 1.0, abs_tol=1e-9)
 
 
+def test_set_score_next_opener_even_game_set() -> None:
+    """With p_return=1 A wins every game; set ends 6-0 (6 games, even) → same opener for next set."""
+    spec = tm.SetSpec(6, 6, 7, False)
+    tm.clear_caches()
+    d = tm.set_score_distribution(spec, True, 1.0, 1.0)
+    assert list(d.keys()) == [(6, 0, True)]
+    assert d[(6, 0, True)] == pytest.approx(1.0)
+
+
+def test_set_score_next_opener_odd_game_set() -> None:
+    """With p_serve=1 p_return=0 each side holds; set goes to 7-6 tiebreak (13 games, odd) → opener flips."""
+    spec = tm.SetSpec(6, 6, 7, False)
+    tm.clear_caches()
+    d = tm.set_score_distribution(spec, True, 1.0, 0.0)
+    # Every game goes to the server, so score reaches 6-6 and a tiebreak is always played.
+    # Tiebreak server is A (srv_a=True at 6-6 since 12 even games done, A serves game 13).
+    # After the tiebreak the next opener flips to B (False).
+    assert all(next_opener is False for (_, _, next_opener) in d)
+
+
 def test_first_server_does_not_change_match_level_distribution() -> None:
-    """Alternating serve + ITF set-2 opener implies match win and set-count PMF are phase-invariant."""
+    """Match win and set-count PMF are phase-invariant under the ATP continuation rule.
+
+    Both players share the same p_serve and p_return, so swapping who serves first
+    is equivalent to relabelling A↔B — the match-outcome distribution is identical.
+    """
     spec = tm.SetSpec(6, 6, 7, False)
     ps, pr = 0.71, 0.34
     tm.clear_caches()
@@ -115,7 +139,7 @@ def test_complementary_p_serve_p_return_yields_symmetric_match() -> None:
     standard = tm.SetSpec(6, 6, 7, False)
     tm.clear_caches()
     s = tm.set_score_distribution(standard, True, 0.62, 0.38)
-    pa_set = sum(p for (a, b), p in s.items() if a > b)
+    pa_set = sum(p for (a, b, _), p in s.items() if a > b)
     assert pa_set == pytest.approx(0.5, abs=1e-9)
     tm.clear_caches()
     m = tm._match_bo3_three_sets(standard, True, 0.62, 0.38)
