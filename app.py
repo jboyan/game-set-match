@@ -240,7 +240,7 @@ Each row in **Match win probabilities** is a full match under that format’s ru
 - **Prob(deuce) (games, detail):** 40–40 (3–3 points) before the game ends.
 - **Prob(extra pts) (tiebreak to 7):** 6–6 before someone wins by two.
 - **Prob(extra pts) (tiebreak to 10):** 9–9 before someone wins by two.
-- **Win equations (games):** each term is the chance Player A (or B) wins **via that terminal game score path** (e.g. **(@40-0)**). On **A serves (with deuces)** only, the old single **(@40-30)** bucket is split into **(@40-30)** (hold at 40–30 **without** ever reaching deuce) and **(@Ad-in)** (win by two points **after** 3–3 was played — e.g. 5–3, 6–4, …). **No-ad** rows include **(@Deuce)** when that side wins on the **deciding point at 3–3** (no extended deuce).
+- **Win equations (games):** each term is the chance Player A (or B) wins **via that terminal game score path** (e.g. **(@40-0)**).
 - **Win equations (tiebreaks):** terms are **(win by 1)**, **(win by 2)**, **(win by 3)**, **(win by 4+)** — the winner’s **point margin** at the end of the tiebreak (same buckets as the old margin columns; see point-margin note below).
 - **Point margins:** signed point differential for Player A at the end of that unit (extra ±1 buckets cover no-ad and tiebreaks).
 - **Between sets:** the ATP/WTA continuation rule is used — whoever would have served the next game (had the previous set continued) serves game 1 of the new set. Equivalently, the set-opener flips when the set had an odd number of games (6–1, 6–3, 7–6) and stays the same when it had an even number (6–0, 6–2, 6–4, 7–5).

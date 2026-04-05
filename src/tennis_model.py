@@ -13,7 +13,7 @@ import pandas as pd
 sys.setrecursionlimit(20000)
 
 # 0-based index of the repeated column-title row in `game_primitives_table` (between games and tiebreaks).
-GAME_PRIMITIVES_MID_HEADER_ROW_INDEX = 2
+GAME_PRIMITIVES_MID_HEADER_ROW_INDEX = 4
 
 # First column of ``game_primitives_table`` / ``match_formats_table``.
 GAME_TABLE_ROW_LABEL_COL = "Single game"
@@ -421,7 +421,8 @@ def _game_win_equation(
 
 def game_primitives_table(p_serve: float, p_return: float) -> pd.DataFrame:
     """
-    Table 1: A serves deuce/no-ad games; A serves point 1 of each tiebreak.
+    Table 1: A-serve and B-serve deuce/no-ad games (point win prob for A is ``p_serve`` / ``p_return``
+    respectively); A serves point 1 of each tiebreak.
 
     Columns: row label, **Player A wins** / **Player B wins** (equation cells), then
     ``GAME_DEUCE_COL_HEADER`` (P(ever deuce) for games; tiebreak rows use P(extra pts) in the same column).
@@ -464,6 +465,37 @@ def game_primitives_table(p_serve: float, p_return: float) -> pd.DataFrame:
             _game_win_equation(dist_na, for_a=True, no_ad=True),
             _game_win_equation(dist_na, for_a=False, no_ad=True),
             _noad_deuce_visit_rec(0, 0, p_serve),
+        ]
+    )
+    m_bd, v_bd = _advantage_game_tables(p_return)
+    dist_bd = m_bd[(0, 0)]
+    sba = _advantage_margin2_split_a(p_return)
+    sbb = _advantage_margin2_split_b(p_return)
+    data.append(
+        [
+            "B serves (with deuces)",
+            _game_win_equation(
+                dist_bd,
+                for_a=True,
+                no_ad=False,
+                adv_margin2_split_a=sba,
+            ),
+            _game_win_equation(
+                dist_bd,
+                for_a=False,
+                no_ad=False,
+                adv_margin2_split_b=sbb,
+            ),
+            v_bd[(0, 0)],
+        ]
+    )
+    dist_nb = _noad_game_rec(0, 0, p_return)
+    data.append(
+        [
+            "B serves (no-ad scoring)",
+            _game_win_equation(dist_nb, for_a=True, no_ad=True),
+            _game_win_equation(dist_nb, for_a=False, no_ad=True),
+            _noad_deuce_visit_rec(0, 0, p_return),
         ]
     )
     assert len(GAME_PRIMITIVES_MID_HEADER_LABELS) == len(cols)

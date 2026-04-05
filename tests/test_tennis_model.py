@@ -184,7 +184,7 @@ def test_tiebreak_serve_rotation_first_server_points() -> None:
 def test_game_primitives_table_shape() -> None:
     tm.clear_caches()
     df = tm.game_primitives_table(0.6, 0.35)
-    assert len(df) == 5
+    assert len(df) == 7
     assert list(df.columns) == [
         tm.GAME_TABLE_ROW_LABEL_COL,
         "Player A wins",
@@ -193,6 +193,25 @@ def test_game_primitives_table_shape() -> None:
     ]
     idx = tm.GAME_PRIMITIVES_MID_HEADER_ROW_INDEX
     assert df.iloc[idx].tolist() == list(tm.GAME_PRIMITIVES_MID_HEADER_LABELS)
+    for label in ("B serves (with deuces)", "B serves (no-ad scoring)"):
+        assert label in set(df[tm.GAME_TABLE_ROW_LABEL_COL])
+
+
+def test_b_serve_game_rows_use_p_return_only() -> None:
+    """B-serve game math uses P(A wins point) = p_return; invariant if p_serve changes."""
+    tm.clear_caches()
+    df_lo = tm.game_primitives_table(0.2, 0.44)
+    tm.clear_caches()
+    df_hi = tm.game_primitives_table(0.95, 0.44)
+    for label in ("B serves (with deuces)", "B serves (no-ad scoring)"):
+        row_lo = df_lo.loc[df_lo[tm.GAME_TABLE_ROW_LABEL_COL] == label].iloc[0]
+        row_hi = df_hi.loc[df_hi[tm.GAME_TABLE_ROW_LABEL_COL] == label].iloc[0]
+        assert row_lo["Player A wins"] == row_hi["Player A wins"]
+        assert row_lo["Player B wins"] == row_hi["Player B wins"]
+        assert row_lo[tm.GAME_DEUCE_COL_HEADER] == row_hi[tm.GAME_DEUCE_COL_HEADER]
+    a_lo = df_lo.loc[df_lo[tm.GAME_TABLE_ROW_LABEL_COL] == "A serves (with deuces)"].iloc[0]
+    a_hi = df_hi.loc[df_hi[tm.GAME_TABLE_ROW_LABEL_COL] == "A serves (with deuces)"].iloc[0]
+    assert a_lo["Player A wins"] != a_hi["Player A wins"]
 
 
 def test_no_ad_game_equation_includes_deciding_point_deuce() -> None:
