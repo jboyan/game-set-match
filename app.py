@@ -44,16 +44,8 @@ def _paint_sliders_js(color_a: str, color_b: str) -> str:
       el.style.setProperty("background-color", color, "important");
       el.style.setProperty("border-color", color, "important");
     }});
-    root.querySelectorAll('[data-testid="stThumbValue"]').forEach(function (el) {{
+    root.querySelectorAll('[data-testid="stSliderThumbValue"]').forEach(function (el) {{
       el.style.setProperty("color", color, "important");
-    }});
-    var inner = root.querySelector('[data-baseweb="slider"]');
-    if (!inner) return;
-    inner.querySelectorAll("div").forEach(function (d) {{
-      var c = (d.getAttribute("class") || "").toLowerCase();
-      if (c.indexOf("innertrack") !== -1) {{
-        d.style.setProperty("background", color, "important");
-      }}
     }});
   }}
   function tick() {{
