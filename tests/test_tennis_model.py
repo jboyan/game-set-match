@@ -159,7 +159,7 @@ def test_game_primitives_table_shape() -> None:
     df = tm.game_primitives_table(0.6, 0.35)
     assert len(df) == 5
     assert list(df.columns[0:4]) == [
-        "Format",
+        tm.GAME_TABLE_ROW_LABEL_COL,
         "Player A win %",
         "Player B win %",
         tm.GAME_DEUCE_COL_TOP,
@@ -172,4 +172,4 @@ def test_match_formats_table_row_labels() -> None:
     tm.clear_caches()
     df = tm.match_formats_table(0.55, 0.44, True)
     assert len(df) == 5
-    assert "Grand Slam Men's Singles" in set(df["Format"])
+    assert "Grand Slam Men's Singles" in set(df[tm.MATCH_TABLE_ROW_LABEL_COL])

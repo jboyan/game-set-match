@@ -15,6 +15,10 @@ sys.setrecursionlimit(20000)
 # 0-based index of the repeated column-title row in `game_primitives_table` (between games and tiebreaks).
 GAME_PRIMITIVES_MID_HEADER_ROW_INDEX = 2
 
+# First column of ``game_primitives_table`` / ``match_formats_table``.
+GAME_TABLE_ROW_LABEL_COL = "Single game"
+MATCH_TABLE_ROW_LABEL_COL = "Match Format"
+
 # Game / tiebreak table: deuce-or-tie column in the top header (scores-as-path margin columns use MARGIN_COLS).
 GAME_DEUCE_COL_TOP = "Prob(deuce)"
 # Mid-table gray header row: extra-points column label (games above use Prob(deuce) in the real header).
@@ -33,7 +37,7 @@ LEGACY_MARGIN_COLS = (
 )
 
 GAME_PRIMITIVES_MID_HEADER_LABELS = [
-    "Format",
+    "Tiebreak",
     "Player A win %",
     "Player B win %",
     GAME_DEUCE_COL_MID,
@@ -279,21 +283,22 @@ def game_primitives_table(p_serve: float, p_return: float) -> pd.DataFrame:
 
     Inserts a middle row (see ``GAME_PRIMITIVES_MID_HEADER_ROW_INDEX``) with
     ``GAME_PRIMITIVES_MID_HEADER_LABELS`` (``GAME_DEUCE_COL_MID`` + legacy margin titles)
-    before the tiebreak rows; dataframe columns remain ``GAME_DEUCE_COL_TOP`` and ``MARGIN_COLS``.
+    before the tiebreak rows. Row-label column is ``GAME_TABLE_ROW_LABEL_COL``; mid row starts with
+    ``"Tiebreak"``. Other columns use ``GAME_DEUCE_COL_TOP`` and ``MARGIN_COLS``.
     """
     rows = []
     m_ad, v_ad = _advantage_game_tables(p_serve)
     dist_ad = m_ad[(0, 0)]
     rows.append(
         (
-            "Game with deuces",
+            "A serves (with deuces)",
             _row_from_margin_dist(dist_ad, v_ad[(0, 0)]),
         )
     )
     dist_na = _noad_game_rec(0, 0, p_serve)
     rows.append(
         (
-            "Game with no-ad scoring",
+            "A serves (no-ad scoring)",
             _row_from_margin_dist(dist_na, _noad_deuce_visit_rec(0, 0, p_serve)),
         )
     )
@@ -302,7 +307,7 @@ def game_primitives_table(p_serve: float, p_return: float) -> pd.DataFrame:
         dist, dt = _tiebreak_solve(target, tie_level, True, p_serve, p_return)
         rows.append((label, _row_from_margin_dist(dist, dt)))
 
-    cols = ["Format"] + [
+    cols = [GAME_TABLE_ROW_LABEL_COL] + [
         "Player A win %",
         "Player B win %",
         GAME_DEUCE_COL_TOP,
@@ -578,7 +583,7 @@ def match_formats_table(p_serve: float, p_return: float, first_set_server_a: boo
         ),
     ]
 
-    cols = ["Format", "Player A win %", "Player B win %", *MATCH_SCORE_COLS]
+    cols = [MATCH_TABLE_ROW_LABEL_COL, "Player A win %", "Player B win %", *MATCH_SCORE_COLS]
     data = []
     for label, dist, is_bo5 in rows_meta:
         r = _dist_to_match_row(dist, is_bo5)

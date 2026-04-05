@@ -83,13 +83,14 @@ def _inject_slider_chrome_colors() -> None:
 
 def _dataframe_column_config(columns: pd.Index) -> dict[str, dict[str, Any]]:
     """
-    Pin Format; right-align all other columns via ColumnConfig ``alignment`` (Glide grid
-    ignores pandas Styler ``text-align``).
+    Pin the first column (``Match Format`` / ``Single game``);
+    right-align all other columns via ColumnConfig ``alignment``.
     """
     cfg: dict[str, dict[str, Any]] = {}
+    label_col = columns[0]
     for col in columns:
         name = str(col)
-        if col == "Format":
+        if col == label_col:
             cfg[name] = {**st.column_config.TextColumn(pinned=True), "alignment": "left"}
         else:
             cfg[name] = {**st.column_config.TextColumn(), "alignment": "right"}
@@ -102,8 +103,9 @@ def _match_df_na_to_empty_strings(df: pd.DataFrame) -> pd.DataFrame:
     Empty strings avoid nulls in the payload so cells stay blank.
     """
     out = df.copy()
+    row_label = out.columns[0]
     for c in out.columns:
-        if c == "Format":
+        if c == row_label:
             continue
         out[c] = out[c].where(out[c].notna(), "")
     return out
@@ -137,7 +139,7 @@ def _probability_table_styler(
     mid_header_row: int | None = None,
     blank_na: bool = False,
 ) -> pd.io.formats.style.Styler:
-    pct_cols = [c for c in df.columns if c != "Format"]
+    pct_cols = list(df.columns[1:])
     miss = "" if blank_na else "—"
     ab_win_css = "font-weight: 700; font-size: 1.2rem;"
 
