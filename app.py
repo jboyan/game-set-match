@@ -188,12 +188,12 @@ st.markdown(
 )
 
 a_pct = _slider_block(
-    title="Player A service point win %",
+    title="Player A's service point win %",
     state_key="svc_pct_a",
     default=55,
 )
 b_pct = _slider_block(
-    title="Player B service point win %",
+    title="Player B's service point win %",
     state_key="svc_pct_b",
     default=45,
 )

@@ -120,6 +120,21 @@ def _race_terminal(a: int, b: int, target: int) -> bool:
     return False
 
 
+def _win_by_two_grid_dim(target: int) -> int:
+    """
+    Side length (0..dim inclusive) for the win-by-two DP grid.
+
+    Older code used ``max(220, …)`` for **every** target, so a single game (target 4) still
+    allocated ~221² ≈ 49k states. Actual support for (0,0) outcomes needs only O(target)
+    plus a modest deuce / win-by-two tail (validated vs dim=220 to ~1e-12).
+    """
+    if target <= 4:
+        return 52
+    if target <= 7:
+        return 60
+    return 64
+
+
 def win_by_two_race_solve(
     target: int,
     tie_visit_level: int,
@@ -134,7 +149,7 @@ def win_by_two_race_solve(
 
     Returns (margin_pmf_by_state, tie_visit_prob_by_state); use [...][(0, 0)] from the start.
     """
-    dim = max(220, target * 2 + 30)
+    dim = _win_by_two_grid_dim(target)
     margin: Dict[Tuple[int, int], Tuple[float, ...]] = {}
     visit: Dict[Tuple[int, int], float] = {}
 
@@ -207,36 +222,37 @@ def _advantage_game_tables(p: float) -> Tuple[Dict[Tuple[int, int], Tuple[float,
 
 
 @lru_cache(maxsize=None)
-def _p_adv_first_absorb_at(a: int, b: int, p: float, ta: int, tb: int) -> float:
+def _advantage_margin2_hold_raw(p: float) -> Tuple[float, float]:
     """
-    P(first absorption is exactly (ta,tb) with **A** winning | start (a,b)), race to 4 win-by-2.
-    ``cap`` truncates extreme deuce depth (negligible mass lost for (4,2) targets from (0,0)).
+    One backward grid pass (not per-state LRU): P(first absorb at (4,2) with A win),
+    P(first absorb at (2,4) with B win) from (0,0). Matches the old recursive absorb
+    probabilities but stores **one** cache entry per ``p`` instead of thousands.
     """
     cap = 55
-    if a > cap or b > cap:
-        return 0.0
-    if a >= 4 and a - b >= 2:
-        return 1.0 if (a, b) == (ta, tb) else 0.0
-    if b >= 4 and b - a >= 2:
-        return 0.0
-    return p * _p_adv_first_absorb_at(a + 1, b, p, ta, tb) + (1.0 - p) * _p_adv_first_absorb_at(
-        a, b + 1, p, ta, tb
-    )
-
-
-@lru_cache(maxsize=None)
-def _p_adv_first_absorb_b_win_at(a: int, b: int, p: float, ta: int, tb: int) -> float:
-    """Same as above when **B** wins at the absorbing score (ta, tb)."""
-    cap = 55
-    if a > cap or b > cap:
-        return 0.0
-    if b >= 4 and b - a >= 2:
-        return 1.0 if (a, b) == (ta, tb) else 0.0
-    if a >= 4 and a - b >= 2:
-        return 0.0
-    return p * _p_adv_first_absorb_b_win_at(a + 1, b, p, ta, tb) + (1.0 - p) * _p_adv_first_absorb_b_win_at(
-        a, b + 1, p, ta, tb
-    )
+    f42: Dict[Tuple[int, int], float] = {}
+    f24: Dict[Tuple[int, int], float] = {}
+    for s in range(2 * cap, -1, -1):
+        for a in range(max(0, s - cap), min(cap, s) + 1):
+            b = s - a
+            if b < 0 or b > cap:
+                continue
+            if a >= 4 and a - b >= 2:
+                f42[(a, b)] = 1.0 if (a, b) == (4, 2) else 0.0
+            elif b >= 4 and b - a >= 2:
+                f42[(a, b)] = 0.0
+            else:
+                v1 = f42.get((a + 1, b), 0.0)
+                v2 = f42.get((a, b + 1), 0.0)
+                f42[(a, b)] = p * v1 + (1.0 - p) * v2
+            if b >= 4 and b - a >= 2:
+                f24[(a, b)] = 1.0 if (a, b) == (2, 4) else 0.0
+            elif a >= 4 and a - b >= 2:
+                f24[(a, b)] = 0.0
+            else:
+                v1 = f24.get((a + 1, b), 0.0)
+                v2 = f24.get((a, b + 1), 0.0)
+                f24[(a, b)] = p * v1 + (1.0 - p) * v2
+    return (float(f42.get((0, 0), 0.0)), float(f24.get((0, 0), 0.0)))
 
 
 def _advantage_margin2_split_a(p: float) -> Tuple[float, float]:
@@ -245,7 +261,7 @@ def _advantage_margin2_split_a(p: float) -> Tuple[float, float]:
     """
     m, _ = _advantage_game_tables(p)
     d5 = float(m[(0, 0)][5])
-    p_hold = float(_p_adv_first_absorb_at(0, 0, p, 4, 2))
+    p_hold, _ = _advantage_margin2_hold_raw(p)
     p_ad = max(0.0, d5 - p_hold)
     return p_hold, p_ad
 
@@ -254,7 +270,7 @@ def _advantage_margin2_split_b(p: float) -> Tuple[float, float]:
     """B wins +2 margin: (2,4) before deuce vs (3,5),(4,6),…"""
     m, _ = _advantage_game_tables(p)
     d2 = float(m[(0, 0)][2])
-    p_hold = float(_p_adv_first_absorb_b_win_at(0, 0, p, 2, 4))
+    _, p_hold = _advantage_margin2_hold_raw(p)
     p_ad = max(0.0, d2 - p_hold)
     return p_hold, p_ad
 
@@ -741,6 +757,7 @@ def match_formats_table(p_serve: float, p_return: float, first_set_server_a: boo
 
 def clear_caches() -> None:
     _advantage_game_tables.cache_clear()
+    _advantage_margin2_hold_raw.cache_clear()
     _tiebreak_solve.cache_clear()
     _noad_game_rec.cache_clear()
     _noad_deuce_visit_rec.cache_clear()
