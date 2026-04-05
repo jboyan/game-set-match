@@ -55,7 +55,8 @@ MARGIN_COLS = [
     "Win @ 40-0",
 ]
 
-MATCH_SCORE_COLS = ["0-3", "1-3", "2-3", "0-2", "1-2", "2-1", "2-0", "3-2", "3-1", "3-0"]
+# En dash for set scores in match-win equation cells, e.g. "(3–0)".
+_MATCH_SCORE_SEP = "\u2013"
 
 
 def no_ad_game_win_prob_closed_form(p: float) -> float:
@@ -516,23 +517,28 @@ def _match_bo5_uniform(
     return rec(0, 0, first_set_server_a)
 
 
-def _dist_to_match_row(dist: Dict[Tuple[int, int], float], bo5: bool) -> Dict[str, float]:
-    p_a = sum(pr for (sa, sb), pr in dist.items() if sa > sb)
-    p_b = 1.0 - p_a
-    row: Dict[str, float] = {"Player A win %": p_a, "Player B win %": p_b}
-    for c in MATCH_SCORE_COLS:
-        row[c] = float("nan")
-    for (sa, sb), p in dist.items():
-        key = f"{sa}-{sb}"
-        if key in row:
-            row[key] = p
-    if not bo5:
-        for c in ("0-3", "1-3", "2-3", "3-2", "3-1", "3-0"):
-            row[c] = float("nan")
+def _match_win_equation(dist: Dict[Tuple[int, int], float], *, for_a: bool, bo5: bool) -> str:
+    """
+    One cell: ``84.4% = 35.0% (3–0) + 31.0% (3–1) + …`` with terms ordered from
+    most dominant win to least (fewer sets dropped first). Player A cells use
+    A–B set counts; Player B cells use B–A so scores read from that player's view.
+    """
+    if for_a:
+        order = [(3, 0), (3, 1), (3, 2)] if bo5 else [(2, 0), (2, 1)]
+        p_total = sum(p for (sa, sb), p in dist.items() if sa > sb)
     else:
-        for c in ("0-2", "1-2", "2-1", "2-0"):
-            row[c] = float("nan")
-    return row
+        order = [(0, 3), (1, 3), (2, 3)] if bo5 else [(0, 2), (1, 2)]
+        p_total = sum(p for (sa, sb), p in dist.items() if sb > sa)
+    parts: list[str] = []
+    for sa, sb in order:
+        p = dist.get((sa, sb), 0.0)
+        if p <= 0.0:
+            continue
+        first, second = (sa, sb) if for_a else (sb, sa)
+        parts.append(f"{100.0 * p:.1f}% ({first}{_MATCH_SCORE_SEP}{second})")
+    if not parts:
+        return f"{100.0 * p_total:.1f}% ="
+    return f"{100.0 * p_total:.1f}% = " + " + ".join(parts)
 
 
 def match_formats_table(p_serve: float, p_return: float, first_set_server_a: bool) -> pd.DataFrame:
@@ -577,11 +583,16 @@ def match_formats_table(p_serve: float, p_return: float, first_set_server_a: boo
         ),
     ]
 
-    cols = [MATCH_TABLE_ROW_LABEL_COL, "Player A win %", "Player B win %", *MATCH_SCORE_COLS]
+    cols = [MATCH_TABLE_ROW_LABEL_COL, "Player A wins", "Player B wins"]
     data = []
     for label, dist, is_bo5 in rows_meta:
-        r = _dist_to_match_row(dist, is_bo5)
-        data.append([label] + [r[c] for c in cols[1:]])
+        data.append(
+            [
+                label,
+                _match_win_equation(dist, for_a=True, bo5=is_bo5),
+                _match_win_equation(dist, for_a=False, bo5=is_bo5),
+            ]
+        )
     return pd.DataFrame(data, columns=cols)
 
 

@@ -149,14 +149,17 @@ def test_complementary_p_serve_p_return_yields_symmetric_match() -> None:
     assert m[(2, 1)] == pytest.approx(m[(1, 2)], abs=1e-9)
 
 
-def test_match_row_win_rate_matches_distribution() -> None:
+def test_match_equation_total_matches_distribution() -> None:
     ps, pr = 0.6, 0.4
     standard = tm.SetSpec(6, 6, 7, False)
     tm.clear_caches()
     dist = tm._match_bo3_three_sets(standard, True, ps, pr)
-    row = tm._dist_to_match_row(dist, False)
     pa = sum(p for (sa, sb), p in dist.items() if sa > sb)
-    assert row["Player A win %"] == pytest.approx(pa, abs=1e-10)
+    tm.clear_caches()
+    df = tm.match_formats_table(ps, pr, True)
+    row = df.loc[df[tm.MATCH_TABLE_ROW_LABEL_COL] == "ATP/WTA Singles"].iloc[0]
+    shown = float(str(row["Player A wins"]).split("%", 1)[0])
+    assert shown == pytest.approx(round(100.0 * pa, 1), abs=1e-6)
 
 
 def test_tiebreak_tb7_extreme_servers() -> None:
@@ -196,4 +199,9 @@ def test_match_formats_table_row_labels() -> None:
     tm.clear_caches()
     df = tm.match_formats_table(0.55, 0.44, True)
     assert len(df) == 5
+    assert list(df.columns) == [
+        tm.MATCH_TABLE_ROW_LABEL_COL,
+        "Player A wins",
+        "Player B wins",
+    ]
     assert "Grand Slam Men's Singles" in set(df[tm.MATCH_TABLE_ROW_LABEL_COL])
