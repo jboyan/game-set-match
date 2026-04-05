@@ -1,0 +1,4 @@
+# Used by Streamlit Community Cloud (takes precedence over pyproject.toml).
+streamlit>=1.41.0
+numpy>=1.26.0
+pandas>=2.1.0

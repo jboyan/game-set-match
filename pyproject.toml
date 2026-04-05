@@ -13,6 +13,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.4.0"]
 
+# App is run as app.py with sys.path to src/; no installable package layout.
+# Avoids `poetry install` failing with "No file/folder found for package".
+[tool.poetry]
+package-mode = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
