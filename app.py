@@ -4,8 +4,6 @@ from __future__ import annotations
 import html
 import sys
 from pathlib import Path
-from typing import Any
-
 _SRC = Path(__file__).resolve().parent / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
@@ -16,7 +14,6 @@ import streamlit as st
 import tennis_model as tm
 
 _SLIDER_MAX_W = "450px"
-_GAME_AB_WIN_COLS = frozenset({"Player A win %", "Player B win %"})
 
 _APP_CUSTOM_CSS = f"""
 <style>
@@ -45,6 +42,9 @@ table.gsm-match-table th, table.gsm-match-table td {{
   vertical-align: top;
   border-bottom: 1px solid rgba(49, 51, 63, 0.12);
 }}
+table.gsm-match-table thead tr {{
+  background-color: #f0f2f6;
+}}
 table.gsm-match-table thead th {{
   font-weight: 600;
   color: rgba(49, 51, 63, 0.85);
@@ -53,30 +53,12 @@ table.gsm-match-table td.gsm-match-equation strong {{
   font-weight: 700;
   font-size: 1.15rem;
 }}
+table.gsm-match-table td.gsm-pct-cell,
+table.gsm-match-table th.gsm-pct-cell {{
+  text-align: right;
+}}
 </style>
 """
-
-
-def _dataframe_column_config(
-    columns: pd.Index,
-    *,
-    left_align: frozenset[str] | None = None,
-) -> dict[str, dict[str, Any]]:
-    """
-    Pin the first column (``Match Format`` / ``Single game``);
-    right-align other columns unless listed in ``left_align``.
-    """
-    la = left_align or frozenset()
-    cfg: dict[str, dict[str, Any]] = {}
-    label_col = columns[0]
-    for col in columns:
-        name = str(col)
-        if col == label_col:
-            cfg[name] = {**st.column_config.TextColumn(pinned=True), "alignment": "left"}
-        else:
-            align = "left" if name in la else "right"
-            cfg[name] = {**st.column_config.TextColumn(), "alignment": align}
-    return cfg
 
 
 def _match_df_na_to_empty_strings(df: pd.DataFrame) -> pd.DataFrame:
@@ -91,64 +73,6 @@ def _match_df_na_to_empty_strings(df: pd.DataFrame) -> pd.DataFrame:
             continue
         out[c] = out[c].where(out[c].notna(), "")
     return out
-
-
-def _fmt_prob_cell(v: object, *, blank_na: bool = False) -> str:
-    miss = "" if blank_na else "—"
-    if v == "":
-        return miss
-    if isinstance(v, str) and v.strip().lower() in ("none", "nan"):
-        return miss
-    if v is None:
-        return miss
-    try:
-        if pd.isna(v):
-            return miss
-    except TypeError:
-        pass
-    if isinstance(v, (float, int)) and isinstance(v, float) and v != v:
-        return miss
-    if isinstance(v, bool):
-        return str(v)
-    if isinstance(v, (int, float)):
-        return f"{100.0 * float(v):.1f}%"
-    return str(v)
-
-
-def _probability_table_styler(
-    df: pd.DataFrame,
-    *,
-    mid_header_row: int | None = None,
-    blank_na: bool = False,
-) -> pd.io.formats.style.Styler:
-    pct_cols = list(df.columns[1:])
-    miss = "" if blank_na else "—"
-    ab_win_css = "font-weight: 700; font-size: 1.2rem;"
-
-    def _fmt(v: object) -> str:
-        return _fmt_prob_cell(v, blank_na=blank_na)
-
-    def _ab_win_data_cells(row: pd.Series) -> list[str]:
-        """Bold Player A/B game win % cells; skip the gray mid-header row (game table)."""
-        if mid_header_row is not None and row.name == mid_header_row:
-            return [""] * len(row)
-        return [ab_win_css if c in _GAME_AB_WIN_COLS else "" for c in row.index]
-
-    styler = (
-        df.style.hide(axis="index")
-        .format(_fmt, subset=pct_cols, na_rep=miss)
-        .apply(_ab_win_data_cells, axis=1)
-    )
-    if mid_header_row is not None:
-        gray = "#f0f2f6"
-
-        def _mid_header_row_style(row: pd.Series) -> list[str]:
-            if row.name != mid_header_row:
-                return [""] * len(row)
-            return [f"background-color: {gray};"] * len(row)
-
-        styler = styler.apply(_mid_header_row_style, axis=1)
-    return styler
 
 
 def _match_equation_cell_html(s: object) -> str:
@@ -178,6 +102,48 @@ def _match_table_html(df: pd.DataFrame) -> str:
             else:
                 cells.append(f'<td class="gsm-match-equation">{_match_equation_cell_html(v)}</td>')
         rows_html.append("<tr>" + "".join(cells) + "</tr>")
+    return (
+        '<table class="gsm-match-table" role="grid">'
+        f"<thead><tr>{thead}</tr></thead><tbody>{''.join(rows_html)}</tbody></table>"
+    )
+
+
+def _game_primitives_table_html(df: pd.DataFrame) -> str:
+    """Like the match table: bold leading total in win columns; gray mid header row."""
+    mid = tm.GAME_PRIMITIVES_MID_HEADER_ROW_INDEX
+    cols = list(df.columns)
+    eq_cols = frozenset({"Player A wins", "Player B wins"})
+    deuce_col = tm.GAME_DEUCE_COL_HEADER
+    thead = "".join(
+        f'<th class="gsm-pct-cell">{html.escape(str(c))}</th>'
+        if c == deuce_col
+        else f"<th>{html.escape(str(c))}</th>"
+        for c in cols
+    )
+    rows_html: list[str] = []
+    for i, (_, row) in enumerate(df.iterrows()):
+        gray = i == mid
+        tr_attr = ' style="background-color:#f0f2f6"' if gray else ""
+        cells: list[str] = []
+        for c in cols:
+            v = row[c]
+            if c == cols[0]:
+                cells.append(f"<td>{html.escape(str(v) if v is not None and not pd.isna(v) else '')}</td>")
+            elif c in eq_cols:
+                if gray and (v is None or (isinstance(v, str) and not v.strip()) or pd.isna(v)):
+                    cells.append("<td></td>")
+                else:
+                    cells.append(f'<td class="gsm-match-equation">{_match_equation_cell_html(v)}</td>')
+            else:
+                if isinstance(v, (int, float)) and not (isinstance(v, float) and v != v) and not pd.isna(v):
+                    cells.append(
+                        f'<td class="gsm-pct-cell">{html.escape(f"{100.0 * float(v):.1f}%")}</td>'
+                    )
+                else:
+                    cells.append(
+                        f'<td class="gsm-pct-cell">{html.escape(str(v) if v is not None else "")}</td>'
+                    )
+        rows_html.append(f"<tr{tr_attr}>" + "".join(cells) + "</tr>")
     return (
         '<table class="gsm-match-table" role="grid">'
         f"<thead><tr>{thead}</tr></thead><tbody>{''.join(rows_html)}</tbody></table>"
@@ -243,21 +209,11 @@ if a_pct == b_pct:
         "percentages differ to see a favorite."
     )
 
-tm.clear_caches()
 game_df = tm.game_primitives_table(p_serve, p_return)
 match_df = tm.match_formats_table(p_serve, p_return, True)
 
 st.subheader("Game win probabilities")
-_game_styled = _probability_table_styler(
-    game_df,
-    mid_header_row=tm.GAME_PRIMITIVES_MID_HEADER_ROW_INDEX,
-)
-st.dataframe(
-    _game_styled,
-    use_container_width=True,
-    hide_index=True,
-    column_config=_dataframe_column_config(_game_styled.data.columns),
-)
+st.markdown(_game_primitives_table_html(game_df), unsafe_allow_html=True)
 
 st.subheader("Match win probabilities")
 _match_clean = _match_df_na_to_empty_strings(match_df)
@@ -278,9 +234,12 @@ Each row in **Match win probabilities** is a full match under that format’s ru
 
 ### Terms used elsewhere
 
-- **Prob(deuce) (games):** probability the score ever reaches 40–40 (3–3 points) before the game ends.
-- **Prob(extra pts) (tiebreak to 7):** probability the tiebreak score is ever 6–6 before someone wins by two.
-- **Prob(extra pts) (tiebreak to 10):** probability the tiebreak score is ever 9–9 before someone wins by two.
+- **Prob(deuce)** (game table, last column): for **games**, the chance the score ever reaches **40–40** (deuce) before someone holds. **Tiebreak** rows in that column are still **P(extra pts)** — **6–6** (TB7) or **9–9** (TB10) before someone wins by two — even though the column header says **Prob(deuce)**.
+- **Prob(deuce) (games, detail):** 40–40 (3–3 points) before the game ends.
+- **Prob(extra pts) (tiebreak to 7):** 6–6 before someone wins by two.
+- **Prob(extra pts) (tiebreak to 10):** 9–9 before someone wins by two.
+- **Win equations (games):** each term is the chance Player A (or B) wins **via that terminal game score path** (e.g. **(@40-0)**). On **A serves (with deuces)** only, the old single **(@40-30)** bucket is split into **(@40-30)** (hold at 40–30 **without** ever reaching deuce) and **(@Ad-in)** (win by two points **after** 3–3 was played — e.g. 5–3, 6–4, …). **No-ad** rows include **(@Deuce)** when that side wins on the **deciding point at 3–3** (no extended deuce).
+- **Win equations (tiebreaks):** terms are **(win by 1)**, **(win by 2)**, **(win by 3)**, **(win by 4+)** — the winner’s **point margin** at the end of the tiebreak (same buckets as the old margin columns; see point-margin note below).
 - **Point margins:** signed point differential for Player A at the end of that unit (extra ±1 buckets cover no-ad and tiebreaks).
 - **Between sets:** the ATP/WTA continuation rule is used — whoever would have served the next game (had the previous set continued) serves game 1 of the new set. Equivalently, the set-opener flips when the set had an odd number of games (6–1, 6–3, 7–6) and stays the same when it had an even number (6–0, 6–2, 6–4, 7–5).
 - **Why 50–50 match odds?** If **Player A’s and Player B’s service point win rates are equal**, then whenever A serves, B’s chance to win the point is the same as A’s when B serves (roles swap cleanly). The whole match is then **symmetric** and Player A’s set/match win probability is **exactly ½**, with mirrored score distributions—not a bug.

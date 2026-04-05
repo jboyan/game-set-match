@@ -6,7 +6,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import pandas as pd
 
@@ -19,29 +19,16 @@ GAME_PRIMITIVES_MID_HEADER_ROW_INDEX = 2
 GAME_TABLE_ROW_LABEL_COL = "Single game"
 MATCH_TABLE_ROW_LABEL_COL = "Match Format"
 
-# Game / tiebreak table: deuce-or-tie column in the top header (scores-as-path margin columns use MARGIN_COLS).
-GAME_DEUCE_COL_TOP = "Prob(deuce)"
-# Mid-table gray header row: extra-points column label (games above use Prob(deuce) in the real header).
+# Game / tiebreak table: header label (tiebreak rows still show P(extra pts) in that column).
+GAME_DEUCE_COL_HEADER = "Prob(deuce)"
+# Mid-table gray header row: clarifies tiebreak rows use the “extra pts” interpretation.
 GAME_DEUCE_COL_MID = "Prob(extra pts)"
 
-# Legacy margin labels for the gray mid-table header row only.
-LEGACY_MARGIN_COLS = (
-    "Lose by ≥4",
-    "Lose by 3",
-    "Lose by 2",
-    "Lose by 1",
-    "Win by 1",
-    "Win by 2",
-    "Win by 3",
-    "Win by ≥4",
-)
-
-GAME_PRIMITIVES_MID_HEADER_LABELS = [
+GAME_PRIMITIVES_MID_HEADER_LABELS: List[str] = [
     "Tiebreak",
-    "Player A win %",
-    "Player B win %",
+    "",
+    "",
     GAME_DEUCE_COL_MID,
-    *LEGACY_MARGIN_COLS,
 ]
 
 MARGIN_COLS = [
@@ -220,6 +207,59 @@ def _advantage_game_tables(p: float) -> Tuple[Dict[Tuple[int, int], Tuple[float,
 
 
 @lru_cache(maxsize=None)
+def _p_adv_first_absorb_at(a: int, b: int, p: float, ta: int, tb: int) -> float:
+    """
+    P(first absorption is exactly (ta,tb) with **A** winning | start (a,b)), race to 4 win-by-2.
+    ``cap`` truncates extreme deuce depth (negligible mass lost for (4,2) targets from (0,0)).
+    """
+    cap = 55
+    if a > cap or b > cap:
+        return 0.0
+    if a >= 4 and a - b >= 2:
+        return 1.0 if (a, b) == (ta, tb) else 0.0
+    if b >= 4 and b - a >= 2:
+        return 0.0
+    return p * _p_adv_first_absorb_at(a + 1, b, p, ta, tb) + (1.0 - p) * _p_adv_first_absorb_at(
+        a, b + 1, p, ta, tb
+    )
+
+
+@lru_cache(maxsize=None)
+def _p_adv_first_absorb_b_win_at(a: int, b: int, p: float, ta: int, tb: int) -> float:
+    """Same as above when **B** wins at the absorbing score (ta, tb)."""
+    cap = 55
+    if a > cap or b > cap:
+        return 0.0
+    if b >= 4 and b - a >= 2:
+        return 1.0 if (a, b) == (ta, tb) else 0.0
+    if a >= 4 and a - b >= 2:
+        return 0.0
+    return p * _p_adv_first_absorb_b_win_at(a + 1, b, p, ta, tb) + (1.0 - p) * _p_adv_first_absorb_b_win_at(
+        a, b + 1, p, ta, tb
+    )
+
+
+def _advantage_margin2_split_a(p: float) -> Tuple[float, float]:
+    """
+    For A wins with point margin +2: (4,2) never visits 3–3 vs all other +2 terminals (deuce played).
+    """
+    m, _ = _advantage_game_tables(p)
+    d5 = float(m[(0, 0)][5])
+    p_hold = float(_p_adv_first_absorb_at(0, 0, p, 4, 2))
+    p_ad = max(0.0, d5 - p_hold)
+    return p_hold, p_ad
+
+
+def _advantage_margin2_split_b(p: float) -> Tuple[float, float]:
+    """B wins +2 margin: (2,4) before deuce vs (3,5),(4,6),…"""
+    m, _ = _advantage_game_tables(p)
+    d2 = float(m[(0, 0)][2])
+    p_hold = float(_p_adv_first_absorb_b_win_at(0, 0, p, 2, 4))
+    p_ad = max(0.0, d2 - p_hold)
+    return p_hold, p_ad
+
+
+@lru_cache(maxsize=None)
 def _noad_game_rec(a: int, b: int, p: float) -> Tuple[float, ...]:
     if a >= 4 and a > b:
         return _terminal_margin(a - b)
@@ -263,63 +303,166 @@ def _play_tiebreak_win_prob_a(
     return float(sum(dist[i] for i in (4, 5, 6, 7)))
 
 
-def _row_from_margin_dist(
+# (margin_dist index, display tag). A wins: strongest finish first; B wins: B’s POV tags.
+_GAME_EQ_A_ORDER: Tuple[Tuple[int, str], ...] = (
+    (7, "(@40-0)"),
+    (6, "(@40-15)"),
+    (5, "(@40-30)"),
+    (4, "(@Deuce)"),
+)
+_GAME_EQ_B_ORDER: Tuple[Tuple[int, str], ...] = (
+    (0, "(@40-0)"),
+    (1, "(@40-15)"),
+    (2, "(@40-30)"),
+    (3, "(@Deuce)"),
+)
+# Tiebreak rows: same margin buckets as games, but labels are point-win margins (A or B).
+_TB_EQ_A_ORDER: Tuple[Tuple[int, str], ...] = (
+    (4, "(win by 1)"),
+    (5, "(win by 2)"),
+    (6, "(win by 3)"),
+    (7, "(win by 4+)"),
+)
+_TB_EQ_B_ORDER: Tuple[Tuple[int, str], ...] = (
+    (3, "(win by 1)"),
+    (2, "(win by 2)"),
+    (1, "(win by 3)"),
+    (0, "(win by 4+)"),
+)
+
+
+def _game_win_equation(
     dist: Tuple[float, ...],
-    deuce_tie: float,
-) -> Dict[str, float]:
-    p_a = float(sum(dist[i] for i in (4, 5, 6, 7)))
-    row: Dict[str, float] = {
-        "Player A win %": p_a,
-        "Player B win %": 1.0 - p_a,
-        GAME_DEUCE_COL_TOP: deuce_tie,
-    }
-    for label, val in zip(MARGIN_COLS, dist):
-        row[label] = val
-    return row
+    *,
+    for_a: bool,
+    no_ad: bool,
+    tiebreak: bool = False,
+    adv_margin2_split_a: Tuple[float, float] | None = None,
+    adv_margin2_split_b: Tuple[float, float] | None = None,
+) -> str:
+    """
+    Games: ``32.9% = 3.1% (@40-0) + …`` from ``MARGIN_COLS`` path buckets.
+    For **advantage** rows only, ``adv_margin2_split_*`` replaces the single +2 bucket with
+    ``(@40-30)`` (no deuce) and ``(@Ad-in)`` (won after 3–3, still +2 points).
+    Tiebreaks: point-margin labels (win by 1, …).
+    """
+    if tiebreak:
+        order = _TB_EQ_A_ORDER if for_a else _TB_EQ_B_ORDER
+        p_total = float(sum(dist[i] for i, _ in order))
+        parts: list[str] = []
+        for idx, tag in order:
+            p = dist[idx]
+            if p <= 0.0:
+                continue
+            parts.append(f"{100.0 * p:.1f}% {tag}")
+        if not parts:
+            return f"{100.0 * p_total:.1f}% ="
+        return f"{100.0 * p_total:.1f}% = " + " + ".join(parts)
+
+    if for_a:
+        order = _GAME_EQ_A_ORDER
+        p_total = float(sum(dist[i] for i, _ in order))
+        parts = []
+        use_split = adv_margin2_split_a is not None and not no_ad
+        for idx, tag in order:
+            if use_split and idx == 5:
+                assert adv_margin2_split_a is not None
+                ph, pa = adv_margin2_split_a
+                if ph > 0.0:
+                    parts.append(f"{100.0 * ph:.1f}% (@40-30)")
+                if pa > 0.0:
+                    parts.append(f"{100.0 * pa:.1f}% (@Ad-in)")
+                continue
+            p = dist[idx]
+            if p <= 0.0:
+                continue
+            parts.append(f"{100.0 * p:.1f}% {tag}")
+        if not parts:
+            return f"{100.0 * p_total:.1f}% ="
+        return f"{100.0 * p_total:.1f}% = " + " + ".join(parts)
+
+    order = _GAME_EQ_B_ORDER
+    p_total = float(sum(dist[i] for i, _ in order))
+    parts = []
+    use_split = adv_margin2_split_b is not None and not no_ad
+    for idx, tag in order:
+        if use_split and idx == 2:
+            assert adv_margin2_split_b is not None
+            ph, pa = adv_margin2_split_b
+            if ph > 0.0:
+                parts.append(f"{100.0 * ph:.1f}% (@40-30)")
+            if pa > 0.0:
+                parts.append(f"{100.0 * pa:.1f}% (@Ad-in)")
+            continue
+        p = dist[idx]
+        if p <= 0.0:
+            continue
+        parts.append(f"{100.0 * p:.1f}% {tag}")
+    if not parts:
+        return f"{100.0 * p_total:.1f}% ="
+    return f"{100.0 * p_total:.1f}% = " + " + ".join(parts)
 
 
 def game_primitives_table(p_serve: float, p_return: float) -> pd.DataFrame:
     """
     Table 1: A serves deuce/no-ad games; A serves point 1 of each tiebreak.
 
-    Inserts a middle row (see ``GAME_PRIMITIVES_MID_HEADER_ROW_INDEX``) with
-    ``GAME_PRIMITIVES_MID_HEADER_LABELS`` (``GAME_DEUCE_COL_MID`` + legacy margin titles)
-    before the tiebreak rows. Row-label column is ``GAME_TABLE_ROW_LABEL_COL``; mid row starts with
-    ``"Tiebreak"``. Other columns use ``GAME_DEUCE_COL_TOP`` and ``MARGIN_COLS``.
+    Columns: row label, **Player A wins** / **Player B wins** (equation cells), then
+    ``GAME_DEUCE_COL_HEADER`` (P(ever deuce) for games; tiebreak rows use P(extra pts) in the same column).
+
+    Inserts ``GAME_PRIMITIVES_MID_HEADER_ROW_INDEX`` (gray row) before tiebreak rows.
     """
-    rows = []
+    cols = [
+        GAME_TABLE_ROW_LABEL_COL,
+        "Player A wins",
+        "Player B wins",
+        GAME_DEUCE_COL_HEADER,
+    ]
+    data: list[list[object]] = []
     m_ad, v_ad = _advantage_game_tables(p_serve)
     dist_ad = m_ad[(0, 0)]
-    rows.append(
-        (
+    sa = _advantage_margin2_split_a(p_serve)
+    sb = _advantage_margin2_split_b(p_serve)
+    data.append(
+        [
             "A serves (with deuces)",
-            _row_from_margin_dist(dist_ad, v_ad[(0, 0)]),
-        )
+            _game_win_equation(
+                dist_ad,
+                for_a=True,
+                no_ad=False,
+                adv_margin2_split_a=sa,
+            ),
+            _game_win_equation(
+                dist_ad,
+                for_a=False,
+                no_ad=False,
+                adv_margin2_split_b=sb,
+            ),
+            v_ad[(0, 0)],
+        ]
     )
     dist_na = _noad_game_rec(0, 0, p_serve)
-    rows.append(
-        (
+    data.append(
+        [
             "A serves (no-ad scoring)",
-            _row_from_margin_dist(dist_na, _noad_deuce_visit_rec(0, 0, p_serve)),
-        )
+            _game_win_equation(dist_na, for_a=True, no_ad=True),
+            _game_win_equation(dist_na, for_a=False, no_ad=True),
+            _noad_deuce_visit_rec(0, 0, p_serve),
+        ]
     )
+    assert len(GAME_PRIMITIVES_MID_HEADER_LABELS) == len(cols)
+    data.append(list(GAME_PRIMITIVES_MID_HEADER_LABELS))
     for target, label in ((7, "Tiebreak to 7"), (10, "Tiebreak to 10")):
         tie_level = target - 1
         dist, dt = _tiebreak_solve(target, tie_level, True, p_serve, p_return)
-        rows.append((label, _row_from_margin_dist(dist, dt)))
-
-    cols = [GAME_TABLE_ROW_LABEL_COL] + [
-        "Player A win %",
-        "Player B win %",
-        GAME_DEUCE_COL_TOP,
-        *MARGIN_COLS,
-    ]
-    data = []
-    for i, (name, r) in enumerate(rows):
-        data.append([name] + [r[c] for c in cols[1:]])
-        if i == 1:
-            assert len(GAME_PRIMITIVES_MID_HEADER_LABELS) == len(cols)
-            data.append(list(GAME_PRIMITIVES_MID_HEADER_LABELS))
+        data.append(
+            [
+                label,
+                _game_win_equation(dist, for_a=True, no_ad=False, tiebreak=True),
+                _game_win_equation(dist, for_a=False, no_ad=False, tiebreak=True),
+                dt,
+            ]
+        )
     return pd.DataFrame(data, columns=cols)
 
 

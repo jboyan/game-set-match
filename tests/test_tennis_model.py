@@ -185,14 +185,43 @@ def test_game_primitives_table_shape() -> None:
     tm.clear_caches()
     df = tm.game_primitives_table(0.6, 0.35)
     assert len(df) == 5
-    assert list(df.columns[0:4]) == [
+    assert list(df.columns) == [
         tm.GAME_TABLE_ROW_LABEL_COL,
-        "Player A win %",
-        "Player B win %",
-        tm.GAME_DEUCE_COL_TOP,
+        "Player A wins",
+        "Player B wins",
+        tm.GAME_DEUCE_COL_HEADER,
     ]
     idx = tm.GAME_PRIMITIVES_MID_HEADER_ROW_INDEX
     assert df.iloc[idx].tolist() == list(tm.GAME_PRIMITIVES_MID_HEADER_LABELS)
+
+
+def test_no_ad_game_equation_includes_deciding_point_deuce() -> None:
+    tm.clear_caches()
+    df = tm.game_primitives_table(0.6, 0.35)
+    row = df.loc[df[tm.GAME_TABLE_ROW_LABEL_COL] == "A serves (no-ad scoring)"].iloc[0]
+    assert "(@Deuce)" in str(row["Player A wins"])
+    assert "(@Deuce)" in str(row["Player B wins"])
+
+
+def test_advantage_margin2_split_matches_margin_bucket() -> None:
+    """(+2) display split sums to the same mass as MARGIN_COLS 'Win @ 40-30' / 'Lose @ 30-40'."""
+    p = 0.62
+    tm.clear_caches()
+    m, _ = tm._advantage_game_tables(p)
+    dist = m[(0, 0)]
+    sa = tm._advantage_margin2_split_a(p)
+    sb = tm._advantage_margin2_split_b(p)
+    assert sa[0] + sa[1] == pytest.approx(dist[5], abs=1e-12)
+    assert sb[0] + sb[1] == pytest.approx(dist[2], abs=1e-12)
+
+
+def test_tiebreak_equations_use_point_margins_not_game_scores() -> None:
+    tm.clear_caches()
+    df = tm.game_primitives_table(0.6, 0.35)
+    row = df.loc[df[tm.GAME_TABLE_ROW_LABEL_COL] == "Tiebreak to 7"].iloc[0]
+    s = str(row["Player A wins"])
+    assert "(win by 2)" in s
+    assert "(@40-" not in s
 
 
 def test_match_formats_table_row_labels() -> None:
