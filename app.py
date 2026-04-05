@@ -181,9 +181,11 @@ st.set_page_config(page_title="Game, Set, Match", layout="wide")
 st.markdown(_APP_CUSTOM_CSS, unsafe_allow_html=True)
 
 st.title("🎾 Game, Set, Match")
+_tag_pa = int(st.session_state.get("svc_pct_a", 55))
+_tag_pb = int(st.session_state.get("svc_pct_b", 45))
 st.markdown(
-    '<p class="gsm-tagline">If a tennis player wins 55% of her points on serve, what are her chances of '
-    "winning a game, set, or match?</p>",
+    f'<p class="gsm-tagline">If a tennis player wins {_tag_pa}% of her points on serve, and her opponent '
+    f"wins {_tag_pb}% of his points on serve, what are their chances of winning a game, tiebreak, set, or match?</p>",
     unsafe_allow_html=True,
 )
 
