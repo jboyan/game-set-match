@@ -11,12 +11,9 @@ if str(_SRC) not in sys.path:
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 import tennis_model as tm
 
-_COLOR_A = "#c62828"
-_COLOR_B = "#1565c0"
 _SLIDER_MAX_W = "450px"
 _AB_WIN_COLS = ("Player A win %", "Player B win %")
 
@@ -29,48 +26,6 @@ _APP_CUSTOM_CSS = f"""
 }}
 </style>
 """
-
-
-def _paint_sliders_js(color_a: str, color_b: str) -> str:
-    """Run in iframe; color first two main-area sliders (Player A / B). CSS selectors were unreliable."""
-    return f"""
-<script>
-(function () {{
-  const CA = {color_a!r};
-  const CB = {color_b!r};
-  function apply(root, color) {{
-    if (!root) return;
-    root.querySelectorAll('[role="slider"], [data-baseweb="thumb"]').forEach(function (el) {{
-      el.style.setProperty("background-color", color, "important");
-      el.style.setProperty("border-color", color, "important");
-    }});
-    root.querySelectorAll('[data-testid="stSliderThumbValue"]').forEach(function (el) {{
-      el.style.setProperty("color", color, "important");
-    }});
-  }}
-  function tick() {{
-    try {{
-      var doc = window.parent.document;
-      var sliders = doc.querySelectorAll('section[data-testid="stMain"] [data-testid="stSlider"]');
-      if (sliders.length < 2) return false;
-      apply(sliders[0], CA);
-      apply(sliders[1], CB);
-      return true;
-    }} catch (e) {{
-      return false;
-    }}
-  }}
-  var n = 0;
-  var id = setInterval(function () {{
-    if (tick() || ++n > 50) clearInterval(id);
-  }}, 100);
-}})();
-</script>
-"""
-
-
-def _inject_slider_chrome_colors() -> None:
-    components.html(_paint_sliders_js(_COLOR_A, _COLOR_B), height=0)
 
 
 def _dataframe_column_config(columns: pd.Index) -> dict[str, dict[str, Any]]:
@@ -167,7 +122,7 @@ def _slider_block(
     state_key: str,
     default: int,
 ) -> int:
-    """Label above the slider (value is only on the widget). Chrome colors applied via components.html."""
+    """Label above the slider (value is only on the widget)."""
     if state_key not in st.session_state:
         st.session_state[state_key] = default
     st.markdown(
@@ -206,8 +161,6 @@ b_pct = _slider_block(
     state_key="svc_pct_b",
     default=47,
 )
-_inject_slider_chrome_colors()
-
 p_serve = a_pct / 100.0
 p_b_serve = b_pct / 100.0
 p_return = 1.0 - p_b_serve
