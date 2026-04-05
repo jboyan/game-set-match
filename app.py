@@ -259,10 +259,10 @@ with st.expander("Definitions"):
         """
 - **Prob(deuce) (games):** probability the score ever reaches 40–40 (3–3 points) before the game ends.
 - **Prob(extra pts) (tiebreak to 7):** probability the tiebreak score is ever 6–6 before someone wins by two.
-- **Prob(extra pts) (tiebreak to 10):** probability the tiebreak score is ever 10–10 before someone wins by two.
+- **Prob(extra pts) (tiebreak to 10):** probability the tiebreak score is ever 9–9 before someone wins by two.
 - **Point margins:** signed point differential for Player A at the end of that unit (extra ±1 buckets cover no-ad and tiebreaks).
-- **Between sets:** the player who *received* in game 1 of the previous set serves game 1 of the next set.
+- **Between sets:** the ATP/WTA continuation rule is used — whoever would have served the next game (had the previous set continued) serves game 1 of the new set. Equivalently, the set-opener flips when the set had an odd number of games (6–1, 6–3, 7–6) and stays the same when it had an even number (6–0, 6–2, 6–4, 7–5).
 - **Why 50–50 match odds?** If **Player A’s and Player B’s service point win rates are equal**, then whenever A serves, B’s chance to win the point is the same as A’s when B serves (roles swap cleanly). The whole match is then **symmetric** and Player A’s set/match win probability is **exactly ½**, with mirrored score distributions—not a bug.
-- **First server:** The app assumes **Player A serves game 1 of set 1.** Under alternating games and the usual between-set opener rule (receiver of set *n* game 1 serves set *n*+1 game 1), match win % and final set-count odds would be the same if B served first instead; only within-set game-score paths (e.g. 6–3 vs 3–6) would shift.
+- **First server:** The app assumes **Player A serves game 1 of set 1.** Under the ATP/WTA continuation rule, who serves first can affect match win probabilities (unlike the always-flip ITF rule), so the choice of first server is meaningful.
         """
     )
