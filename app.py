@@ -9,6 +9,7 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 import tennis_model as tm
@@ -177,6 +178,197 @@ def _slider_block(
     )
 
 
+def _match_rows_meta(
+    p_serve: float, p_return: float, first_set_server_a: bool
+) -> list[tuple[str, dict[tuple[int, int], float], bool]]:
+    """Mirror match table formats, plus raw scoreline distributions for charting."""
+    standard = tm.SetSpec(6, 6, 7, False)
+    slam5_last = tm.SetSpec(6, 6, 10, False)
+    return [
+        (
+            "Grand Slam Men's Singles",
+            tm._match_bo5_variable_last(standard, slam5_last, first_set_server_a, p_serve, p_return),
+            True,
+        ),
+        (
+            "Grand Slam Women's Singles",
+            tm._slam_bo3_variable_tb(
+                (standard, standard, slam5_last),
+                first_set_server_a,
+                p_serve,
+                p_return,
+            ),
+            False,
+        ),
+        (
+            "ATP/WTA Singles",
+            tm._match_bo3_three_sets(standard, first_set_server_a, p_serve, p_return),
+            False,
+        ),
+        (
+            "ATP/WTA Doubles",
+            tm._match_bo3_mtb10(standard, first_set_server_a, p_serve, p_return),
+            False,
+        ),
+        (
+            "Next Gen Fast4",
+            tm._match_bo5_uniform(
+                tm.SetSpec(4, 3, 7, True),
+                first_set_server_a,
+                p_serve,
+                p_return,
+            ),
+            True,
+        ),
+    ]
+
+
+def _match_stack_df(
+    p_serve: float, p_return: float, first_set_server_a: bool
+) -> pd.DataFrame:
+    """One row per stacked segment for a normalized horizontal chart."""
+    recs: list[dict[str, object]] = []
+    for label, dist, is_bo5 in _match_rows_meta(p_serve, p_return, first_set_server_a):
+        if is_bo5:
+            recs.extend(
+                [
+                    {"Format": label, "Segment": "Player A 3-0", "Score": "3-0", "Probability": dist.get((3, 0), 0.0), "Order": 0},
+                    {"Format": label, "Segment": "Player A 3-1", "Score": "3-1", "Probability": dist.get((3, 1), 0.0), "Order": 1},
+                    {"Format": label, "Segment": "Player A 3-2", "Score": "3-2", "Probability": dist.get((3, 2), 0.0), "Order": 2},
+                    {"Format": label, "Segment": "Player A 2-0", "Score": "2-0", "Probability": 0.0, "Order": 0},
+                    {"Format": label, "Segment": "Player A 2-1", "Score": "2-1", "Probability": 0.0, "Order": 2},
+                    {"Format": label, "Segment": "Player B 2-1", "Score": "2-1", "Probability": 0.0, "Order": 3},
+                    {"Format": label, "Segment": "Player B 2-0", "Score": "2-0", "Probability": 0.0, "Order": 5},
+                    {"Format": label, "Segment": "Player B 3-2", "Score": "3-2", "Probability": dist.get((2, 3), 0.0), "Order": 3},
+                    {"Format": label, "Segment": "Player B 3-1", "Score": "3-1", "Probability": dist.get((1, 3), 0.0), "Order": 4},
+                    {"Format": label, "Segment": "Player B 3-0", "Score": "3-0", "Probability": dist.get((0, 3), 0.0), "Order": 5},
+                ]
+            )
+        else:
+            recs.extend(
+                [
+                    {"Format": label, "Segment": "Player A 3-0", "Score": "3-0", "Probability": 0.0, "Order": 0},
+                    {"Format": label, "Segment": "Player A 3-1", "Score": "3-1", "Probability": 0.0, "Order": 1},
+                    {"Format": label, "Segment": "Player A 3-2", "Score": "3-2", "Probability": 0.0, "Order": 2},
+                    {"Format": label, "Segment": "Player A 2-0", "Score": "2-0", "Probability": dist.get((2, 0), 0.0), "Order": 0},
+                    {"Format": label, "Segment": "Player A 2-1", "Score": "2-1", "Probability": dist.get((2, 1), 0.0), "Order": 2},
+                    {"Format": label, "Segment": "Player B 2-1", "Score": "2-1", "Probability": dist.get((1, 2), 0.0), "Order": 3},
+                    {"Format": label, "Segment": "Player B 2-0", "Score": "2-0", "Probability": dist.get((0, 2), 0.0), "Order": 5},
+                    {"Format": label, "Segment": "Player B 3-2", "Score": "3-2", "Probability": 0.0, "Order": 3},
+                    {"Format": label, "Segment": "Player B 3-1", "Score": "3-1", "Probability": 0.0, "Order": 4},
+                    {"Format": label, "Segment": "Player B 3-0", "Score": "3-0", "Probability": 0.0, "Order": 5},
+                ]
+            )
+    out = pd.DataFrame.from_records(recs)
+    if out.empty:
+        return out
+    out["Probability"] = out["Probability"].astype(float)
+    out["Order"] = out["Order"].astype(int)
+    out["Start"] = 0.0
+    for fmt in out["Format"].unique():
+        m = out["Format"] == fmt
+        ordered = out.loc[m].sort_values(["Order", "Segment"]).index
+        p = out.loc[ordered, "Probability"]
+        out.loc[ordered, "Start"] = p.cumsum() - p
+    out["Start"] = out["Start"].astype(float)
+    return out
+
+
+def _game_stack_df(p_serve: float, p_return: float) -> pd.DataFrame:
+    """One row per game/tiebreak equation term for normalized stacked bars."""
+    recs: list[dict[str, object]] = []
+
+    def add_terms(row: str, side: str, vals: list[tuple[str, float]], offset: int) -> None:
+        for i, (tag, prob) in enumerate(vals):
+            recs.append(
+                {
+                    "Row": row,
+                    "Segment": f"Player {side} {tag}",
+                    "Label": tag,
+                    "Probability": float(prob),
+                    "Order": offset + i,
+                }
+            )
+
+    m_ad, _ = tm._advantage_game_tables(p_serve)
+    d_ad = m_ad[(0, 0)]
+    sa = tm._advantage_margin2_split_a(p_serve)
+    sb = tm._advantage_margin2_split_b(p_serve)
+    add_terms(
+        "A serves (with deuces)",
+        "A",
+        [("(@40-0)", d_ad[7]), ("(@40-15)", d_ad[6]), ("(@40-30)", sa[0]), ("(@Ad-in)", sa[1]), ("(@Deuce)", d_ad[4])],
+        0,
+    )
+    add_terms(
+        "A serves (with deuces)",
+        "B",
+        [("(@40-0)", d_ad[0]), ("(@40-15)", d_ad[1]), ("(@40-30)", sb[0]), ("(@Ad-in)", sb[1]), ("(@Deuce)", d_ad[3])],
+        5,
+    )
+
+    d_na = tm._noad_game_rec(0, 0, p_serve)
+    add_terms(
+        "A serves (no-ad scoring)",
+        "A",
+        [("(@40-0)", d_na[7]), ("(@40-15)", d_na[6]), ("(@40-30)", d_na[5]), ("(@Deuce)", d_na[4])],
+        0,
+    )
+    add_terms(
+        "A serves (no-ad scoring)",
+        "B",
+        [("(@40-0)", d_na[0]), ("(@40-15)", d_na[1]), ("(@40-30)", d_na[2]), ("(@Deuce)", d_na[3])],
+        5,
+    )
+
+    m_bd, _ = tm._advantage_game_tables(p_return)
+    d_bd = m_bd[(0, 0)]
+    sba = tm._advantage_margin2_split_a(p_return)
+    sbb = tm._advantage_margin2_split_b(p_return)
+    add_terms(
+        "B serves (with deuces)",
+        "A",
+        [("(@40-0)", d_bd[7]), ("(@40-15)", d_bd[6]), ("(@40-30)", sba[0]), ("(@Ad-in)", sba[1]), ("(@Deuce)", d_bd[4])],
+        0,
+    )
+    add_terms(
+        "B serves (with deuces)",
+        "B",
+        [("(@40-0)", d_bd[0]), ("(@40-15)", d_bd[1]), ("(@40-30)", sbb[0]), ("(@Ad-in)", sbb[1]), ("(@Deuce)", d_bd[3])],
+        5,
+    )
+
+    d_nb = tm._noad_game_rec(0, 0, p_return)
+    add_terms(
+        "B serves (no-ad scoring)",
+        "A",
+        [("(@40-0)", d_nb[7]), ("(@40-15)", d_nb[6]), ("(@40-30)", d_nb[5]), ("(@Deuce)", d_nb[4])],
+        0,
+    )
+    add_terms(
+        "B serves (no-ad scoring)",
+        "B",
+        [("(@40-0)", d_nb[0]), ("(@40-15)", d_nb[1]), ("(@40-30)", d_nb[2]), ("(@Deuce)", d_nb[3])],
+        5,
+    )
+
+    for target, row in ((7, "Tiebreak to 7"), (10, "Tiebreak to 10")):
+        dist, _ = tm._tiebreak_solve(target, target - 1, True, p_serve, p_return)
+        add_terms(
+            row,
+            "A",
+            [("(win by 1)", dist[4]), ("(win by 2)", dist[5]), ("(win by 3)", dist[6]), ("(win by 4+)", dist[7])],
+            0,
+        )
+        add_terms(
+            row,
+            "B",
+            [("(win by 1)", dist[3]), ("(win by 2)", dist[2]), ("(win by 3)", dist[1]), ("(win by 4+)", dist[0])],
+            5,
+        )
+    return pd.DataFrame.from_records(recs)
+
+
 st.set_page_config(page_title="Game, Set, Match", layout="wide")
 st.markdown(_APP_CUSTOM_CSS, unsafe_allow_html=True)
 
@@ -215,11 +407,197 @@ game_df = tm.game_primitives_table(p_serve, p_return)
 match_df = tm.match_formats_table(p_serve, p_return, True)
 
 st.subheader("Game win probabilities")
-st.markdown(_game_primitives_table_html(game_df), unsafe_allow_html=True)
+game_stack_df = _game_stack_df(p_serve, p_return)
+_game_segment_order = [
+    "Player A (@40-0)",
+    "Player A (win by 4+)",
+    "Player A (@40-15)",
+    "Player A (win by 3)",
+    "Player A (@40-30)",
+    "Player A (@Ad-in)",
+    "Player A (win by 2)",
+    "Player A (@Deuce)",
+    "Player A (win by 1)",
+    "Player B (win by 1)",
+    "Player B (@Deuce)",
+    "Player B (win by 2)",
+    "Player B (@Ad-in)",
+    "Player B (@40-30)",
+    "Player B (win by 3)",
+    "Player B (@40-15)",
+    "Player B (win by 4+)",
+    "Player B (@40-0)",
+]
+_game_segments = [s for s in _game_segment_order if s in set(game_stack_df["Segment"])]
+_game_colors = {
+    "Player A (@40-0)": "#8b0000",
+    "Player A (@40-15)": "#b22222",
+    "Player A (@40-30)": "#cc5a5a",
+    "Player A (@Ad-in)": "#e07070",
+    "Player A (@Deuce)": "#f28b82",
+    "Player A (win by 1)": "#f28b82",
+    "Player A (win by 2)": "#e07070",
+    "Player A (win by 3)": "#cc5a5a",
+    "Player A (win by 4+)": "#8b0000",
+    "Player B (@40-0)": "#0b3d91",
+    "Player B (@40-15)": "#2457ae",
+    "Player B (@40-30)": "#4f7fd6",
+    "Player B (@Ad-in)": "#72a1eb",
+    "Player B (@Deuce)": "#8ab4f8",
+    "Player B (win by 1)": "#8ab4f8",
+    "Player B (win by 2)": "#72a1eb",
+    "Player B (win by 3)": "#4f7fd6",
+    "Player B (win by 4+)": "#0b3d91",
+}
+_game_row_order = [
+    "A serves (with deuces)",
+    "A serves (no-ad scoring)",
+    "B serves (with deuces)",
+    "B serves (no-ad scoring)",
+    "Tiebreak to 7",
+    "Tiebreak to 10",
+]
+_game_a_totals = (
+    game_stack_df.loc[game_stack_df["Segment"].str.startswith("Player A "), ["Row", "Probability"]]
+    .groupby("Row", as_index=True)["Probability"]
+    .sum()
+    .to_dict()
+)
+_game_row_labels = {
+    r: f"{r}: <b>{100.0 * float(_game_a_totals.get(r, 0.0)):.1f}%</b>" for r in _game_row_order
+}
+_game_row_order_labeled = [_game_row_labels[r] for r in _game_row_order]
+game_fig = go.Figure()
+_game_legend_seen = {"A": False, "B": False}
+for seg in _game_segments:
+    sdf = (
+        game_stack_df.loc[game_stack_df["Segment"] == seg, ["Row", "Probability", "Label"]]
+        .set_index("Row")
+        .reindex(_game_row_order)
+        .fillna({"Probability": 0.0, "Label": ""})
+    )
+    probs = [float(x) for x in sdf["Probability"]]
+    labels = [str(s) if float(p) >= 0.04 else "" for s, p in zip(sdf["Label"], probs)]
+    side = "A" if seg.startswith("Player A ") else "B"
+    legend_name = "Player A wins" if side == "A" else "Player B wins"
+    show_legend = not _game_legend_seen[side]
+    _game_legend_seen[side] = True
+    game_fig.add_bar(
+        name=legend_name,
+        y=_game_row_order_labeled,
+        x=probs,
+        orientation="h",
+        marker_color=_game_colors.get(seg, "#999999"),
+        text=labels,
+        textposition="inside",
+        insidetextanchor="start",
+        textfont={"color": "white", "size": 11},
+        legendgroup=legend_name,
+        showlegend=show_legend,
+        customdata=[seg] * len(probs),
+        hovertemplate="%{y}<br>%{customdata}: %{x:.1%}<extra></extra>",
+    )
+game_fig.update_layout(
+    barmode="stack",
+    barnorm="fraction",
+    height=390,
+    margin={"l": 10, "r": 10, "t": 8, "b": 90},
+    legend={"orientation": "h", "yanchor": "top", "y": -0.24, "x": 0.0, "title": None},
+)
+game_fig.update_xaxes(range=[0, 1], tickformat=".0%", title_text="")
+game_fig.update_yaxes(
+    title_text="",
+    categoryorder="array",
+    categoryarray=_game_row_order_labeled[::-1],
+    automargin=True,
+    tickfont={"size": 16},
+)
+st.plotly_chart(game_fig, use_container_width=True, config={"displayModeBar": False})
 
 st.subheader("Match win probabilities")
 _match_clean = _match_df_na_to_empty_strings(match_df)
-st.markdown(_match_table_html(_match_clean), unsafe_allow_html=True)
+stack_df = _match_stack_df(p_serve, p_return, True)
+_segment_domain = [
+    "Player A 3-0",
+    "Player A 3-1",
+    "Player A 3-2",
+    "Player A 2-0",
+    "Player A 2-1",
+    "Player B 2-1",
+    "Player B 2-0",
+    "Player B 3-2",
+    "Player B 3-1",
+    "Player B 3-0",
+]
+_segment_colors = {
+    "Player A 3-0": "#8b0000",
+    "Player A 3-1": "#cc5a5a",
+    "Player A 3-2": "#f28b82",
+    "Player A 2-0": "#8b0000",
+    "Player A 2-1": "#f28b82",
+    "Player B 2-1": "#8ab4f8",
+    "Player B 2-0": "#0b3d91",
+    "Player B 3-2": "#8ab4f8",
+    "Player B 3-1": "#4f7fd6",
+    "Player B 3-0": "#0b3d91",
+}
+_format_order = list(match_df[tm.MATCH_TABLE_ROW_LABEL_COL])
+_match_a_totals = (
+    stack_df.loc[stack_df["Segment"].str.startswith("Player A "), ["Format", "Probability"]]
+    .groupby("Format", as_index=True)["Probability"]
+    .sum()
+    .to_dict()
+)
+_format_labels = {
+    r: f"{r}: <b>{100.0 * float(_match_a_totals.get(r, 0.0)):.1f}%</b>" for r in _format_order
+}
+_format_order_labeled = [_format_labels[r] for r in _format_order]
+fig = go.Figure()
+_match_legend_seen = {"A": False, "B": False}
+for seg in _segment_domain:
+    sdf = (
+        stack_df.loc[stack_df["Segment"] == seg, ["Format", "Probability", "Score"]]
+        .set_index("Format")
+        .reindex(_format_order)
+        .fillna({"Probability": 0.0, "Score": ""})
+    )
+    probs = [float(x) for x in sdf["Probability"]]
+    labels = [str(s) if float(p) >= 0.035 else "" for s, p in zip(sdf["Score"], probs)]
+    side = "A" if seg.startswith("Player A ") else "B"
+    legend_name = "Player A wins" if side == "A" else "Player B wins"
+    show_legend = not _match_legend_seen[side]
+    _match_legend_seen[side] = True
+    fig.add_bar(
+        name=legend_name,
+        y=_format_order_labeled,
+        x=probs,
+        orientation="h",
+        marker_color=_segment_colors[seg],
+        text=labels,
+        textposition="inside",
+        insidetextanchor="start",
+        textfont={"color": "white"},
+        legendgroup=legend_name,
+        showlegend=show_legend,
+        customdata=[seg] * len(probs),
+        hovertemplate="%{y}<br>%{customdata}: %{x:.1%}<extra></extra>",
+    )
+fig.update_layout(
+    barmode="stack",
+    barnorm="fraction",
+    height=340,
+    margin={"l": 10, "r": 10, "t": 10, "b": 60},
+    legend={"orientation": "h", "yanchor": "top", "y": -0.2, "x": 0.0, "title": None},
+)
+fig.update_xaxes(range=[0, 1], tickformat=".0%", title_text="")
+fig.update_yaxes(
+    title_text="",
+    categoryorder="array",
+    categoryarray=_format_order_labeled[::-1],
+    automargin=True,
+    tickfont={"size": 16},
+)
+st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 with st.expander("Definitions"):
     st.markdown(
@@ -248,3 +626,9 @@ Each row in **Match win probabilities** is a full match under that format’s ru
 - **First server:** The app assumes **Player A serves game 1 of set 1.** Under the ATP/WTA continuation rule, who serves first can affect match win probabilities (unlike the always-flip ITF rule), so the choice of first server is meaningful.
         """
     )
+
+with st.expander("Game win probabilities table"):
+    st.markdown(_game_primitives_table_html(game_df), unsafe_allow_html=True)
+
+with st.expander("Match win probabilities table"):
+    st.markdown(_match_table_html(_match_clean), unsafe_allow_html=True)
