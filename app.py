@@ -15,6 +15,14 @@ import streamlit as st
 import tennis_model as tm
 
 _SLIDER_MAX_W = "450px"
+# Streamlit 1.41+ (see Slider.tsx renderInnerTrack): StyledThumbWrapper holds the thumb(s),
+# then UIStyledInnerTrack is the *next sibling* — that node is the real 2px Base Web bar.
+# Target it with an adjacent-sibling selector (more reliable than deep :has() chains).
+_SLIDER_TRACK_BAR_SUFFIX = '[data-baseweb="slider"] div:has(> [role="slider"]) + div'
+_SLIDER_TRACK_BAR = f'[data-testid="stSlider"] {_SLIDER_TRACK_BAR_SUFFIX}'
+# Prefix match avoids apostrophe / exact-label mismatches between Python and the DOM.
+_ARIA_A = "Player A"
+_ARIA_B = "Player B"
 
 _APP_CUSTOM_CSS = f"""
 <style>
@@ -26,6 +34,60 @@ p.gsm-tagline {{
   opacity: 0.92;
 }}
 [data-testid="stSlider"] {{ max-width: {_SLIDER_MAX_W}; }}
+[data-testid="stSlider"] [data-baseweb="slider"] {{
+  background: transparent !important;
+}}
+/* Base Web: outer Track is padded + solid fill; InnerTrack is ~2px with a gradient. Global polish only; colors come from injected gradient CSS. */
+[data-testid="stSlider"] [data-baseweb="slider"] > div:first-child {{
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}}
+/* The padded flex row (Track) keeps theme sliderTrackFill behind InnerTrack — reads as a thin full-width tint on the bar */
+[data-testid="stSlider"] [data-baseweb="slider"] div:has(> div:has(> [role="slider"])) {{
+  background: transparent !important;
+  background-color: transparent !important;
+}}
+/* Real InnerTrack (last sibling of thumb row in Streamlit's DOM) */
+{_SLIDER_TRACK_BAR} {{
+  height: 12px !important;
+  border-radius: 999px !important;
+  align-self: center !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}}
+{_SLIDER_TRACK_BAR}::before,
+{_SLIDER_TRACK_BAR}::after {{
+  display: none !important;
+  content: none !important;
+}}
+/* Thumb strip stays visually thin; keep it transparent so only the bar above shows color */
+[data-testid="stSlider"] [data-baseweb="slider"] div:has(> [role="slider"]) {{
+  background: transparent !important;
+  box-shadow: none !important;
+}}
+[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] {{
+  width: 18px !important;
+  height: 18px !important;
+  border: 2px solid #111827 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+  z-index: 2 !important;
+}}
+/* Live value while dragging/hovering (Streamlit ThumbValue); keep readable over the track */
+[data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] > div {{
+  color: #111827 !important;
+  font-weight: 600 !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  padding: 0.15rem 0.45rem !important;
+  border-radius: 6px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14) !important;
+}}
 /* HTML-table fallback if a Streamlit build ignores Styler text-align */
 [data-testid="stDataFrame"] table tbody td:not(:first-child) {{
   text-align: right !important;
@@ -157,25 +219,28 @@ def _slider_block(
     state_key: str,
     default: int,
 ) -> int:
-    """Label above the slider (value is only on the widget)."""
+    """Styled native slider with a single red/blue track."""
     if state_key not in st.session_state:
         st.session_state[state_key] = default
-    st.markdown(
-        '<p style="margin:0 0 0.35rem 0;color:inherit;line-height:1.35;">'
-        f"<strong>{title}</strong></p>",
-        unsafe_allow_html=True,
-    )
-    return int(
-        st.slider(
-            title,
-            0,
-            100,
-            step=1,
-            key=state_key,
-            label_visibility="collapsed",
-            format="%d%%",
+    val = int(st.session_state[state_key])
+    left, right = st.columns([1.7, 4.3], vertical_alignment="center")
+    with left:
+        st.markdown(
+            f"<p style='margin:0;line-height:1.2;'><strong>{title}: {val}%</strong></p>",
+            unsafe_allow_html=True,
         )
-    )
+    with right:
+        return int(
+            st.slider(
+                title,
+                0,
+                100,
+                step=1,
+                key=state_key,
+                label_visibility="collapsed",
+                format="%d%%",
+            )
+        )
 
 
 def _match_rows_meta(
@@ -378,6 +443,26 @@ _tag_pb = int(st.session_state.get("svc_pct_b", 45))
 st.markdown(
     f'<p class="gsm-tagline">If a tennis player wins {_tag_pa}% of her points on serve, and her opponent '
     f"wins {_tag_pb}% of his points on serve, what are their chances of winning a game, tiebreak, set, or match?</p>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    f"""
+<style>
+/* Thick two-tone bar on the real InnerTrack (thumb aria-label distinguishes A vs B). */
+[data-testid="stSlider"]:has([aria-label^="{_ARIA_A}"]) {_SLIDER_TRACK_BAR_SUFFIX} {{
+  background-color: transparent !important;
+  background-image: linear-gradient(to right, #b22222 0%, #b22222 {_tag_pa}%, #2457ae {_tag_pa}%, #2457ae 100%) !important;
+  background-repeat: no-repeat !important;
+  background-size: 100% 100% !important;
+}}
+[data-testid="stSlider"]:has([aria-label^="{_ARIA_B}"]) {_SLIDER_TRACK_BAR_SUFFIX} {{
+  background-color: transparent !important;
+  background-image: linear-gradient(to right, #2457ae 0%, #2457ae {_tag_pb}%, #b22222 {_tag_pb}%, #b22222 100%) !important;
+  background-repeat: no-repeat !important;
+  background-size: 100% 100% !important;
+}}
+</style>
+""",
     unsafe_allow_html=True,
 )
 
