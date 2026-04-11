@@ -218,8 +218,8 @@ def test_no_ad_game_equation_includes_deciding_point_deuce() -> None:
     tm.clear_caches()
     df = tm.game_primitives_table(0.6, 0.35)
     row = df.loc[df[tm.GAME_TABLE_ROW_LABEL_COL] == "A serves (no-ad scoring)"].iloc[0]
-    assert "(@Deuce)" in str(row["Player A wins"])
-    assert "(@Deuce)" in str(row["Player B wins"])
+    assert "@Deuce" in str(row["Player A wins"])
+    assert "@Deuce" in str(row["Player B wins"])
 
 
 def test_advantage_margin2_split_matches_margin_bucket() -> None:
@@ -239,8 +239,8 @@ def test_tiebreak_equations_use_point_margins_not_game_scores() -> None:
     df = tm.game_primitives_table(0.6, 0.35)
     row = df.loc[df[tm.GAME_TABLE_ROW_LABEL_COL] == "Tiebreak to 7"].iloc[0]
     s = str(row["Player A wins"])
-    assert "(win by 2)" in s
-    assert "(@40-" not in s
+    assert "win by 2" in s
+    assert "@40-" not in s
 
 
 def test_match_formats_table_row_labels() -> None:

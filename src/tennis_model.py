@@ -321,29 +321,29 @@ def _play_tiebreak_win_prob_a(
 
 # (margin_dist index, display tag). A wins: strongest finish first; B wins: B’s POV tags.
 _GAME_EQ_A_ORDER: Tuple[Tuple[int, str], ...] = (
-    (7, "(@40-0)"),
-    (6, "(@40-15)"),
-    (5, "(@40-30)"),
-    (4, "(@Deuce)"),
+    (7, "@40-0"),
+    (6, "@40-15"),
+    (5, "@40-30"),
+    (4, "@Deuce"),
 )
 _GAME_EQ_B_ORDER: Tuple[Tuple[int, str], ...] = (
-    (0, "(@40-0)"),
-    (1, "(@40-15)"),
-    (2, "(@40-30)"),
-    (3, "(@Deuce)"),
+    (0, "@40-0"),
+    (1, "@40-15"),
+    (2, "@40-30"),
+    (3, "@Deuce"),
 )
 # Tiebreak rows: same margin buckets as games, but labels are point-win margins (A or B).
 _TB_EQ_A_ORDER: Tuple[Tuple[int, str], ...] = (
-    (4, "(win by 1)"),
-    (5, "(win by 2)"),
-    (6, "(win by 3)"),
-    (7, "(win by 4+)"),
+    (4, "win by 1"),
+    (5, "win by 2"),
+    (6, "win by 3"),
+    (7, "win by 4+"),
 )
 _TB_EQ_B_ORDER: Tuple[Tuple[int, str], ...] = (
-    (3, "(win by 1)"),
-    (2, "(win by 2)"),
-    (1, "(win by 3)"),
-    (0, "(win by 4+)"),
+    (3, "win by 1"),
+    (2, "win by 2"),
+    (1, "win by 3"),
+    (0, "win by 4+"),
 )
 
 
@@ -357,9 +357,9 @@ def _game_win_equation(
     adv_margin2_split_b: Tuple[float, float] | None = None,
 ) -> str:
     """
-    Games: ``32.9% = 3.1% (@40-0) + …`` from ``MARGIN_COLS`` path buckets.
+    Games: ``32.9% = 3.1% @40-0 + …`` from ``MARGIN_COLS`` path buckets.
     For **advantage** rows only, ``adv_margin2_split_*`` replaces the single +2 bucket with
-    ``(@40-30)`` (no deuce) and ``(@Ad-in)`` (won after 3–3, still +2 points).
+    ``@40-30`` (no deuce) and ``@Ad-in`` (won after 3–3, still +2 points).
     Tiebreaks: point-margin labels (win by 1, …).
     """
     if tiebreak:
@@ -385,9 +385,9 @@ def _game_win_equation(
                 assert adv_margin2_split_a is not None
                 ph, pa = adv_margin2_split_a
                 if ph > 0.0:
-                    parts.append(f"{100.0 * ph:.1f}% (@40-30)")
+                    parts.append(f"{100.0 * ph:.1f}% @40-30")
                 if pa > 0.0:
-                    parts.append(f"{100.0 * pa:.1f}% (@Ad-in)")
+                    parts.append(f"{100.0 * pa:.1f}% @Ad-in")
                 continue
             p = dist[idx]
             if p <= 0.0:
@@ -406,9 +406,9 @@ def _game_win_equation(
             assert adv_margin2_split_b is not None
             ph, pa = adv_margin2_split_b
             if ph > 0.0:
-                parts.append(f"{100.0 * ph:.1f}% (@40-30)")
+                parts.append(f"{100.0 * ph:.1f}% @40-30")
             if pa > 0.0:
-                parts.append(f"{100.0 * pa:.1f}% (@Ad-in)")
+                parts.append(f"{100.0 * pa:.1f}% @Ad-in")
             continue
         p = dist[idx]
         if p <= 0.0:

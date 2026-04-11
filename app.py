@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import sys
+from typing import Literal
 from pathlib import Path
 _SRC = Path(__file__).resolve().parent / "src"
 if str(_SRC) not in sys.path:
@@ -32,6 +33,14 @@ p.gsm-tagline {{
   margin: 0 0 0.85rem 0;
   color: inherit;
   opacity: 0.92;
+}}
+/* Slider label rows: Streamlit bottom-align ties to the full widget (ticks/padding), sinking text; keep row cross-centered */
+div[data-testid="stHorizontalBlock"]:has(p.gsm-svc-desc) {{
+  align-items: center !important;
+}}
+/* After centering the row, nudge copy up slightly so the line sits with the thick track (not below it) */
+p.gsm-svc-desc {{
+  transform: translateY(-9px);
 }}
 [data-testid="stSlider"] {{ max-width: {_SLIDER_MAX_W}; }}
 [data-testid="stSlider"] [data-baseweb="slider"] {{
@@ -78,6 +87,8 @@ p.gsm-tagline {{
   background: #ffffff !important;
   box-shadow: none !important;
   z-index: 2 !important;
+  /* Nudge down vs. Streamlit's 2px thumb strip so the circle centers on the thick bar */
+  margin-top: 5px !important;
 }}
 /* Live value while dragging/hovering (Streamlit ThumbValue); keep readable over the track */
 [data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] > div {{
@@ -215,7 +226,8 @@ def _game_primitives_table_html(df: pd.DataFrame) -> str:
 
 def _slider_block(
     *,
-    title: str,
+    player: Literal["A", "B"],
+    possessive: Literal["her", "his"],
     state_key: str,
     default: int,
 ) -> int:
@@ -223,16 +235,19 @@ def _slider_block(
     if state_key not in st.session_state:
         st.session_state[state_key] = default
     val = int(st.session_state[state_key])
-    left, right = st.columns([1.7, 4.3], vertical_alignment="center")
+    label = f"Player {player} wins {val}% of {possessive} service points"
+    # Center cross-axis; bottom-align matches the tall stSlider chrome and pulls labels far below the bar.
+    left, right = st.columns([2.35, 2.35], gap="small", vertical_alignment="center")
     with left:
         st.markdown(
-            f"<p style='margin:0;line-height:1.2;'><strong>{title}: {val}%</strong></p>",
+            "<p class='gsm-svc-desc' style='margin:0;line-height:1.35;text-align:right;'>"
+            f"<strong>{html.escape(label)}</strong></p>",
             unsafe_allow_html=True,
         )
     with right:
         return int(
             st.slider(
-                title,
+                label,
                 0,
                 100,
                 step=1,
@@ -339,6 +354,21 @@ def _match_stack_df(
     return out
 
 
+def _plotly_half_mark_line(fig: go.Figure) -> None:
+    """Dashed gray vertical at 50% probability; y in paper coords so it bleeds into top/bottom margins."""
+    fig.add_shape(
+        type="line",
+        xref="x",
+        yref="paper",
+        x0=0.5,
+        x1=0.5,
+        y0=-0.08,
+        y1=1.08,
+        line={"color": "rgba(110, 110, 118, 0.92)", "width": 1.5, "dash": "dash"},
+        layer="below",
+    )
+
+
 def _game_stack_df(p_serve: float, p_return: float) -> pd.DataFrame:
     """One row per game/tiebreak equation term for normalized stacked bars."""
     recs: list[dict[str, object]] = []
@@ -362,13 +392,13 @@ def _game_stack_df(p_serve: float, p_return: float) -> pd.DataFrame:
     add_terms(
         "A serves (with deuces)",
         "A",
-        [("(@40-0)", d_ad[7]), ("(@40-15)", d_ad[6]), ("(@40-30)", sa[0]), ("(@Ad-in)", sa[1]), ("(@Deuce)", d_ad[4])],
+        [("@40-0", d_ad[7]), ("@40-15", d_ad[6]), ("@40-30", sa[0]), ("@Ad-in", sa[1]), ("@Deuce", d_ad[4])],
         0,
     )
     add_terms(
         "A serves (with deuces)",
         "B",
-        [("(@40-0)", d_ad[0]), ("(@40-15)", d_ad[1]), ("(@40-30)", sb[0]), ("(@Ad-in)", sb[1]), ("(@Deuce)", d_ad[3])],
+        [("@40-0", d_ad[0]), ("@40-15", d_ad[1]), ("@40-30", sb[0]), ("@Ad-in", sb[1]), ("@Deuce", d_ad[3])],
         5,
     )
 
@@ -376,13 +406,13 @@ def _game_stack_df(p_serve: float, p_return: float) -> pd.DataFrame:
     add_terms(
         "A serves (no-ad scoring)",
         "A",
-        [("(@40-0)", d_na[7]), ("(@40-15)", d_na[6]), ("(@40-30)", d_na[5]), ("(@Deuce)", d_na[4])],
+        [("@40-0", d_na[7]), ("@40-15", d_na[6]), ("@40-30", d_na[5]), ("@Deuce", d_na[4])],
         0,
     )
     add_terms(
         "A serves (no-ad scoring)",
         "B",
-        [("(@40-0)", d_na[0]), ("(@40-15)", d_na[1]), ("(@40-30)", d_na[2]), ("(@Deuce)", d_na[3])],
+        [("@40-0", d_na[0]), ("@40-15", d_na[1]), ("@40-30", d_na[2]), ("@Deuce", d_na[3])],
         5,
     )
 
@@ -393,13 +423,13 @@ def _game_stack_df(p_serve: float, p_return: float) -> pd.DataFrame:
     add_terms(
         "B serves (with deuces)",
         "A",
-        [("(@40-0)", d_bd[7]), ("(@40-15)", d_bd[6]), ("(@40-30)", sba[0]), ("(@Ad-in)", sba[1]), ("(@Deuce)", d_bd[4])],
+        [("@40-0", d_bd[7]), ("@40-15", d_bd[6]), ("@40-30", sba[0]), ("@Ad-in", sba[1]), ("@Deuce", d_bd[4])],
         0,
     )
     add_terms(
         "B serves (with deuces)",
         "B",
-        [("(@40-0)", d_bd[0]), ("(@40-15)", d_bd[1]), ("(@40-30)", sbb[0]), ("(@Ad-in)", sbb[1]), ("(@Deuce)", d_bd[3])],
+        [("@40-0", d_bd[0]), ("@40-15", d_bd[1]), ("@40-30", sbb[0]), ("@Ad-in", sbb[1]), ("@Deuce", d_bd[3])],
         5,
     )
 
@@ -407,13 +437,13 @@ def _game_stack_df(p_serve: float, p_return: float) -> pd.DataFrame:
     add_terms(
         "B serves (no-ad scoring)",
         "A",
-        [("(@40-0)", d_nb[7]), ("(@40-15)", d_nb[6]), ("(@40-30)", d_nb[5]), ("(@Deuce)", d_nb[4])],
+        [("@40-0", d_nb[7]), ("@40-15", d_nb[6]), ("@40-30", d_nb[5]), ("@Deuce", d_nb[4])],
         0,
     )
     add_terms(
         "B serves (no-ad scoring)",
         "B",
-        [("(@40-0)", d_nb[0]), ("(@40-15)", d_nb[1]), ("(@40-30)", d_nb[2]), ("(@Deuce)", d_nb[3])],
+        [("@40-0", d_nb[0]), ("@40-15", d_nb[1]), ("@40-30", d_nb[2]), ("@Deuce", d_nb[3])],
         5,
     )
 
@@ -422,13 +452,13 @@ def _game_stack_df(p_serve: float, p_return: float) -> pd.DataFrame:
         add_terms(
             row,
             "A",
-            [("(win by 1)", dist[4]), ("(win by 2)", dist[5]), ("(win by 3)", dist[6]), ("(win by 4+)", dist[7])],
+            [("win by 1", dist[4]), ("win by 2", dist[5]), ("win by 3", dist[6]), ("win by 4+", dist[7])],
             0,
         )
         add_terms(
             row,
             "B",
-            [("(win by 1)", dist[3]), ("(win by 2)", dist[2]), ("(win by 3)", dist[1]), ("(win by 4+)", dist[0])],
+            [("win by 1", dist[3]), ("win by 2", dist[2]), ("win by 3", dist[1]), ("win by 4+", dist[0])],
             5,
         )
     return pd.DataFrame.from_records(recs)
@@ -466,16 +496,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-a_pct = _slider_block(
-    title="Player A's service point win %",
-    state_key="svc_pct_a",
-    default=55,
-)
-b_pct = _slider_block(
-    title="Player B's service point win %",
-    state_key="svc_pct_b",
-    default=45,
-)
+a_pct = _slider_block(player="A", possessive="her", state_key="svc_pct_a", default=55)
+b_pct = _slider_block(player="B", possessive="his", state_key="svc_pct_b", default=45)
 p_serve = a_pct / 100.0
 p_b_serve = b_pct / 100.0
 p_return = 1.0 - p_b_serve
@@ -494,45 +516,45 @@ match_df = tm.match_formats_table(p_serve, p_return, True)
 st.subheader("Game win probabilities")
 game_stack_df = _game_stack_df(p_serve, p_return)
 _game_segment_order = [
-    "Player A (@40-0)",
-    "Player A (win by 4+)",
-    "Player A (@40-15)",
-    "Player A (win by 3)",
-    "Player A (@40-30)",
-    "Player A (@Ad-in)",
-    "Player A (win by 2)",
-    "Player A (@Deuce)",
-    "Player A (win by 1)",
-    "Player B (win by 1)",
-    "Player B (@Deuce)",
-    "Player B (win by 2)",
-    "Player B (@Ad-in)",
-    "Player B (@40-30)",
-    "Player B (win by 3)",
-    "Player B (@40-15)",
-    "Player B (win by 4+)",
-    "Player B (@40-0)",
+    "Player A @40-0",
+    "Player A win by 4+",
+    "Player A @40-15",
+    "Player A win by 3",
+    "Player A @40-30",
+    "Player A @Ad-in",
+    "Player A win by 2",
+    "Player A @Deuce",
+    "Player A win by 1",
+    "Player B win by 1",
+    "Player B @Deuce",
+    "Player B win by 2",
+    "Player B @Ad-in",
+    "Player B @40-30",
+    "Player B win by 3",
+    "Player B @40-15",
+    "Player B win by 4+",
+    "Player B @40-0",
 ]
 _game_segments = [s for s in _game_segment_order if s in set(game_stack_df["Segment"])]
 _game_colors = {
-    "Player A (@40-0)": "#8b0000",
-    "Player A (@40-15)": "#b22222",
-    "Player A (@40-30)": "#cc5a5a",
-    "Player A (@Ad-in)": "#e07070",
-    "Player A (@Deuce)": "#f28b82",
-    "Player A (win by 1)": "#f28b82",
-    "Player A (win by 2)": "#e07070",
-    "Player A (win by 3)": "#cc5a5a",
-    "Player A (win by 4+)": "#8b0000",
-    "Player B (@40-0)": "#0b3d91",
-    "Player B (@40-15)": "#2457ae",
-    "Player B (@40-30)": "#4f7fd6",
-    "Player B (@Ad-in)": "#72a1eb",
-    "Player B (@Deuce)": "#8ab4f8",
-    "Player B (win by 1)": "#8ab4f8",
-    "Player B (win by 2)": "#72a1eb",
-    "Player B (win by 3)": "#4f7fd6",
-    "Player B (win by 4+)": "#0b3d91",
+    "Player A @40-0": "#8b0000",
+    "Player A @40-15": "#b22222",
+    "Player A @40-30": "#cc5a5a",
+    "Player A @Ad-in": "#e07070",
+    "Player A @Deuce": "#f28b82",
+    "Player A win by 1": "#f28b82",
+    "Player A win by 2": "#e07070",
+    "Player A win by 3": "#cc5a5a",
+    "Player A win by 4+": "#8b0000",
+    "Player B @40-0": "#0b3d91",
+    "Player B @40-15": "#2457ae",
+    "Player B @40-30": "#4f7fd6",
+    "Player B @Ad-in": "#72a1eb",
+    "Player B @Deuce": "#8ab4f8",
+    "Player B win by 1": "#8ab4f8",
+    "Player B win by 2": "#72a1eb",
+    "Player B win by 3": "#4f7fd6",
+    "Player B win by 4+": "#0b3d91",
 }
 _game_row_order = [
     "A serves (with deuces)",
@@ -597,6 +619,7 @@ game_fig.update_yaxes(
     automargin=True,
     tickfont={"size": 16},
 )
+_plotly_half_mark_line(game_fig)
 st.plotly_chart(game_fig, use_container_width=True, config={"displayModeBar": False})
 
 st.subheader("Match win probabilities")
@@ -682,6 +705,7 @@ fig.update_yaxes(
     automargin=True,
     tickfont={"size": 16},
 )
+_plotly_half_mark_line(fig)
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 with st.expander("Definitions"):
@@ -703,8 +727,8 @@ Each row in **Match win probabilities** is a full match under that format’s ru
 - **Prob(deuce) (games, detail):** 40–40 (3–3 points) before the game ends.
 - **Prob(extra pts) (tiebreak to 7):** 6–6 before someone wins by two.
 - **Prob(extra pts) (tiebreak to 10):** 9–9 before someone wins by two.
-- **Win equations (games):** each term is the chance Player A (or B) wins **via that terminal game score path** (e.g. **(@40-0)**).
-- **Win equations (tiebreaks):** terms are **(win by 1)**, **(win by 2)**, **(win by 3)**, **(win by 4+)** — the winner’s **point margin** at the end of the tiebreak (same buckets as the old margin columns; see point-margin note below).
+- **Win equations (games):** each term is the chance Player A (or B) wins **via that terminal game score path** (e.g. **@40-0**).
+- **Win equations (tiebreaks):** terms are **win by 1**, **win by 2**, **win by 3**, **win by 4+** — the winner’s **point margin** at the end of the tiebreak (same buckets as the old margin columns; see point-margin note below).
 - **Point margins:** signed point differential for Player A at the end of that unit (extra ±1 buckets cover no-ad and tiebreaks).
 - **Between sets:** the ATP/WTA continuation rule is used — whoever would have served the next game (had the previous set continued) serves game 1 of the new set. Equivalently, the set-opener flips when the set had an odd number of games (6–1, 6–3, 7–6) and stays the same when it had an even number (6–0, 6–2, 6–4, 7–5).
 - **Why 50–50 match odds?** If **Player A’s and Player B’s service point win rates are equal**, then whenever A serves, B’s chance to win the point is the same as A’s when B serves (roles swap cleanly). The whole match is then **symmetric** and Player A’s set/match win probability is **exactly ½**, with mirrored score distributions—not a bug.
